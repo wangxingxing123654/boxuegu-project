@@ -41,7 +41,7 @@ gulp.task('less', function () {
 //编译JS
 //1.库JS(指的是第三方库)合并在一起
 var jsLibs = [
-    'node_modules/artTemplate/template.js',
+    'node_modules/art-template/lib/template-web.js',
     'node_modules/jquery/dist/jquery.js',
     'node_modules/bootstrap/js/bootstrap.js', //bootstrap依赖jquery，所以要先执行。
     'node_modules/jquery-form/dist/jquery.form.min.js'

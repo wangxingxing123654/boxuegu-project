@@ -4,9 +4,17 @@ $.ajax({
     type:'get',
     success:function (data) {
        if(data.code==200){
-           console.log(template('profile',data.result));
+
            $('.teacher-profile').html(template('profile',data.result))
        }
     }
+})
+$('#modify').ajaxForm( {
+     delegation:true,
+    success:function (data) {
+        console.log(data);
+        alert('修改成功');
+    }
+
 })
 },{}]},{},[1]);

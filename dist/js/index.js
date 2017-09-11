@@ -34,4 +34,7 @@ $('#btn-logout').on('click', function() {
 require('./common/header.js');
 require('./common/aside.js');
 require('./common/common.js');
+
+
+
 },{"./common/aside.js":1,"./common/common.js":2,"./common/header.js":3}]},{},[4]);
