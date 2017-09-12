@@ -1,1 +1,40 @@
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>学IT - 后台管理系统</title><link rel="stylesheet" href="/node_modules/bootstrap/css/bootstrap.min.css"><link rel="stylesheet" href="/node_modules/font-awesome/css/font-awesome.css"><link rel="stylesheet" href="/node_modules/nprogress/nprogress.css"><link rel="stylesheet" href="/dist/css/index.css"></head><body><div class="aside"><div class="profile"><div class="avatar img-circle"><img src="../../img/default.png"></div><h4>布头儿</h4></div><div class="navs"><ul class="list-unstyled"><li><a href="/dist/"><i class="fa fa-home"></i> <span>仪表盘</span></a></li><li><a href="javascript:;"><i class="fa fa-bell"></i> <span>讲师管理</span> <i class="arrow fa fa-angle-right"></i></a><ul class="list-unstyled"><li><a href="/dist/html/teacher/add.html">添加讲师</a></li><li><a href="/dist/html/teacher/list.html">讲师列表</a></li></ul></li><li><a href="javascript:;"><i class="fa fa-cog"></i> <span>学科管理</span> <i class="arrow fa fa-angle-right"></i></a><ul class="list-unstyled"><li><a href="/dist/html/category/add.html">添加学科</a></li><li><a href="/dist/html/category/list.html">学科列表</a></li></ul></li><li><a href="javascript:;"><i class="fa fa-cog"></i> <span>课程管理</span> <i class="arrow fa fa-angle-right"></i></a><ul class="list-unstyled"><li><a href="/dist/html/course/add.html">添加课程</a></li><li><a href="/dist/html/course/list.html">课程列表</a></li></ul></li></ul></div></div><div class="main"><div class="container-fluid"><div class="header"><nav class="navbar navbar-custom"><div class="navbar-header"><a href="javascript:;" class="navbar-brand"><i class="fa fa-navicon"></i></a></div><ul class="nav navbar-nav navbar-right"><li><a href="javascript:;"><i class="fa fa-bell"></i> <span class="badge">8</span></a></li><li><a href="/dist/html/user/profile.html"><i class="fa fa-user"></i> 个人中心</a></li><li id="btn-logout"><a href="javascript:;"><i class="fa fa-sign-out"></i> 退出</a></li><li><a href="javascript:;"><i class="fa fa-tasks"></i></a></li></ul></nav></div><div class="body teacher"><ol class="breadcrumb"><li><a href="javascript:;">讲师管理</a></li><li class="active">讲师编辑</li></ol><div class="teacher-add"><form action="/v6/teacher/edit" class="form-horizontal col-xs-offset-2" method="get"><div class="form-group"><label for="" class="col-xs-3 control-label">姓名</label><div class="col-xs-4"><input name="tc_name" type="text" class="form-control input-sm" placeholder="讲师名称" value="{{tc_name}}"></div></div><div class="form-group"><label for="" class="col-xs-3 control-label">入职时间</label><div class="col-xs-4"><input name="tc_join_date" type="text" class="form-control input-sm"></div></div><div class="form-group"><label for="" class="col-xs-3 control-label">类型</label><div class="col-xs-2"><select name="" class="form-control input-sm"><option value="">讲师</option><option value="">管理员</option></select></div></div><div class="form-group"><label for="" class="col-xs-3 control-label">性别</label><div class="col-xs-4"><label class="radio-inline"><input name="tc_gender" value="0" type="radio"> 男</label><label class="radio-inline"><input name="tc_gender" value="1" type="radio"> 女</label></div></div><div class="form-group"><div class="col-xs-7"><button type="submit" class="btn btn-success btn-sm pull-right">保 存</button></div></div></form></div></div></div></div><script src="/dist/js/lib.js"></script><script src="/dist/js/index.js"></script><script src="/dist/js/teacher/list.js"></script></body></html>
+<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>学IT - 后台管理系统</title><link rel="stylesheet" href="/node_modules/bootstrap/css/bootstrap.min.css"><link rel="stylesheet" href="/node_modules/font-awesome/css/font-awesome.css"><link rel="stylesheet" href="/node_modules/nprogress/nprogress.css"><link rel="stylesheet" href="/dist/css/index.css"></head><body><div class="aside"><div class="profile"><div class="avatar img-circle"><img src="../../img/default.png"></div><h4>布头儿</h4></div><div class="navs"><ul class="list-unstyled"><li><a href="/dist/"><i class="fa fa-home"></i> <span>仪表盘</span></a></li><li><a href="javascript:;"><i class="fa fa-bell"></i> <span>讲师管理</span> <i class="arrow fa fa-angle-right"></i></a><ul class="list-unstyled"><li><a href="/dist/html/teacher/add.html">添加讲师</a></li><li><a href="/dist/html/teacher/list.html">讲师列表</a></li></ul></li><li><a href="javascript:;"><i class="fa fa-cog"></i> <span>学科管理</span> <i class="arrow fa fa-angle-right"></i></a><ul class="list-unstyled"><li><a href="/dist/html/category/add.html">添加学科</a></li><li><a href="/dist/html/category/list.html">学科列表</a></li></ul></li><li><a href="javascript:;"><i class="fa fa-cog"></i> <span>课程管理</span> <i class="arrow fa fa-angle-right"></i></a><ul class="list-unstyled"><li><a href="/dist/html/course/add.html">添加课程</a></li><li><a href="/dist/html/course/list.html">课程列表</a></li></ul></li></ul></div></div><div class="main"><div class="container-fluid"><div class="header"><nav class="navbar navbar-custom"><div class="navbar-header"><a href="javascript:;" class="navbar-brand"><i class="fa fa-navicon"></i></a></div><ul class="nav navbar-nav navbar-right"><li><a href="javascript:;"><i class="fa fa-bell"></i> <span class="badge">8</span></a></li><li><a href="/dist/html/user/profile.html"><i class="fa fa-user"></i> 个人中心</a></li><li id="btn-logout"><a href="javascript:;"><i class="fa fa-sign-out"></i> 退出</a></li><li><a href="javascript:;"><i class="fa fa-tasks"></i></a></li></ul></nav></div><div class="body teacher"><ol class="breadcrumb"><li><a href="javascript:;">讲师管理</a></li><li class="active">讲师编辑</li></ol><div class="teacher-add"></div></div></div></div><script type="text/template" id="teacher-edit-tpl"><form action="/v6/teacher/update" class="form-horizontal col-xs-offset-2" method="post" id="teacher-edit-form">
+        <input type='hidden' name="tc_id" value="{{tc_id}}">
+        <div class="form-group">
+            <label for="" class="col-xs-3 control-label">姓名</label>
+            <div class="col-xs-4">
+                <input name="tc_name" type="text" class="form-control input-sm" placeholder="讲师名称" value="{{tc_name}}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="" class="col-xs-3 control-label">入职时间</label>
+            <div class="col-xs-4">
+                <input name="tc_join_date" type="text" class="form-control input-sm" value="{{tc_join_date}}">
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="" class="col-xs-3 control-label">类型</label>
+            <div class="col-xs-2">
+                <select name="tc_type" class="form-control input-sm">
+                    <option value="1">讲师</option>
+                    <option value="0">管理员</option>
+                </select>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="" class="col-xs-3 control-label">性别</label>
+            <div class="col-xs-4">
+                <label class="radio-inline">
+                    <input name="tc_gender" value="0" type="radio" {{tc_gender==0?'checked':''}}> 男
+                </label>
+                <label class="radio-inline">
+                    <input name="tc_gender" value="1" type="radio" {{tc_gender!=0?'checked':''}}> 女
+                </label>
+            </div>
+        </div>
+        <div class="form-group">
+            <div class="col-xs-7">
+                <button type="submit" class="btn btn-success btn-sm pull-right">保 存</button>
+            </div>
+        </div>
+    </form></script><script src="/dist/js/lib.js"></script><script src="/dist/js/index.js"></script><script src="/dist/js/teacher/edit.js"></script></body></html>
