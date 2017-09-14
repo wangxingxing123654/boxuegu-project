@@ -1,4 +1,4 @@
-
+require('../common/common.js');
 $('#login-form').ajaxForm({
     success: function(data) {
         if(data.code == 200) {
@@ -19,3 +19,4 @@ $('#login-form').ajaxForm({
 var userinfo = JSON.parse(localStorage.getItem('userInfo')) || {};
 var tc_avatar = userinfo.tc_avatar || 'http://static.botue.com/images/avatar/58613845e749c.jpg';
 $('.avatar img').attr('src', tc_avatar);
+

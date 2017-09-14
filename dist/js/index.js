@@ -10,11 +10,21 @@ var path = location.pathname;
 $('.navs a').removeClass('active');
 $('.navs a[href="' + path + '"]').addClass('active').parents('ul').show();
 },{}],2:[function(require,module,exports){
+    NProgress.start();
+    window.onload=function () {
+        NProgress.done();
+    }
+var isLogin=!!$.cookie('PHPSESSID');
+var isLoginPath=location.pathname=='/dist/html/user/login.html';
 
-	// NProgress.start();
-    //
-	// NProgress.done();
-    
+//如果在登录页面而且有cookie。跳到首页
+if(isLogin&&isLoginPath){
+    location.href='/dist';
+}
+//如果不在登录页面，而且没有cookie,跳到登录页面。
+if(!isLogin&&!isLoginPath){
+    location.href='/dist/html/user/login.html';
+}
 },{}],3:[function(require,module,exports){
 // �˳�����
 $('#btn-logout').on('click', function() {
@@ -31,15 +41,33 @@ $('#btn-logout').on('click', function() {
 });
 
 },{}],4:[function(require,module,exports){
+
+var loadingHtml='';
+loadingHtml+='<div class="overlay">'
+loadingHtml+="<img src='/public/images/loading.gif'>";
+loadingHtml+='</div>';
+$('body').append(loadingHtml);
+
+
+$(document).on('ajaxStart',function () {
+    $('.overlay').show();
+});
+$(document).on('ajaxStop',function () {
+    $('.overlay').hide();
+})
+
+},{}],5:[function(require,module,exports){
 require('./common/header.js');
 require('./common/aside.js');
 require('./common/common.js');
+
+require('./common/loading.js');
 require('./user/login.js');
 
 
 
-},{"./common/aside.js":1,"./common/common.js":2,"./common/header.js":3,"./user/login.js":5}],5:[function(require,module,exports){
-
+},{"./common/aside.js":1,"./common/common.js":2,"./common/header.js":3,"./common/loading.js":4,"./user/login.js":6}],6:[function(require,module,exports){
+require('../common/common.js');
 $('#login-form').ajaxForm({
     success: function(data) {
         if(data.code == 200) {
@@ -60,4 +88,6 @@ $('#login-form').ajaxForm({
 var userinfo = JSON.parse(localStorage.getItem('userInfo')) || {};
 var tc_avatar = userinfo.tc_avatar || 'http://static.botue.com/images/avatar/58613845e749c.jpg';
 $('.avatar img').attr('src', tc_avatar);
-},{}]},{},[4]);
+
+
+},{"../common/common.js":2}]},{},[5]);

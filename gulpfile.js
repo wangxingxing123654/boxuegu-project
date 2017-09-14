@@ -46,7 +46,10 @@ var jsLibs = [
     'node_modules/art-template/lib/template-web.js',
     'node_modules/jquery/dist/jquery.js',
     'node_modules/bootstrap/js/bootstrap.js', //bootstrap依赖jquery，所以要先执行。
-    'node_modules/jquery-form/dist/jquery.form.min.js'
+    'node_modules/jquery-form/dist/jquery.form.min.js',
+    'node_modules/jquery.cookie/jquery.cookie.js',
+    'node_modules/nprogress/nprogress.js',
+
 ];
 gulp.task('concat', function () {
     gulp.src(jsLibs) //src里面能放数组。先后执行。
