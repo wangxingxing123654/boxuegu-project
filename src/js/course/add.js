@@ -1,4 +1,4 @@
-$('#course-add').ajaxForm(function () {
-    console.log(1);
-    location.href='/dist/html/course/edit1.html';
+$('#course-add').ajaxForm(function (data) {
+
+    location.href='/dist/html/course/edit1.html?cs_id='+data.result.cs_id;
 });

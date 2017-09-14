@@ -20,7 +20,9 @@ gulp.task('html', function () {
             {
                 style: gulp.src('src/html/common/style.html'),
                 header: gulp.src('src/html/common/header.html'),
-                aside: gulp.src('src/html/common/aside.html')
+                aside: gulp.src('src/html/common/aside.html'),
+                courseEditHeader:gulp.src('src/html/common/course/header.html'),
+                courseEditAside:gulp.src('src/html/common/course/aside.html'),
             }
         ))
         .pipe(html({
