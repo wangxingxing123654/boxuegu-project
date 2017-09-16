@@ -48,7 +48,7 @@
                 </a>
             </div>
             <div class="lessons">
-                <ul class="list-unstyled">
+                <ul class="list-unstyled" id="rendering">
                     {{each lessons lesson i}}
                     <li>
                         <i class="fa fa-file-video-o"></i>
@@ -84,7 +84,7 @@
                             <div class="col-xs-2">
                                 <div class="checkbox" >
                                     <label>
-                                        <input type="checkbox" name="ct_is_free" {{ct_is_frees==1?"checked":''}} value="{{ct_is_frees==1?1:0}}"> 免费课时
+                                        <input type="checkbox" id="ct_is_free" {{ct_is_free==1?"checked":''}}  value="1" > 免费课时
                                     </label>
                                 </div>
                             </div>
@@ -133,4 +133,17 @@
                 </div>
 
             </div>
-        </div></script><script src="/dist/js/lib.js"></script><script src="/dist/js/index.js"></script><script src="/dist/js/course/edit3.js"></script></body></html>
+        </div></script><script type="text/template" id="upLessons">{{each $data lesson i}}
+        <li>
+            <i class="fa fa-file-video-o"></i>
+            <span class="order">课时：{{i+1}}</span>
+            <span class="name">{{lesson.ct_name}}</span>
+            <span class="duration">{{lesson.ct_video_duration}}</span>
+            <!-- 操作 -->
+            <div class="action pull-right">
+                <a href="#chapterModal" class="btn btn-info btn-xs" data-toggle="modal" data-ct-id="{{lesson.ct_id}}"
+                   data-target="#chapterModal" id="modalEdit">编辑</a>
+                <a href="javascript:;" class="btn btn-danger btn-xs">删除</a>
+            </div>
+        </li>
+        {{/each}}</script><script src="/dist/js/lib.js"></script><script src="/dist/js/index.js"></script><script src="/dist/js/course/edit3.js"></script></body></html>

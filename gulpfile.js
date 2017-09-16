@@ -49,7 +49,11 @@ var jsLibs = [
     'node_modules/jquery-form/dist/jquery.form.min.js',
     'node_modules/jquery.cookie/jquery.cookie.js',
     'node_modules/nprogress/nprogress.js',
-
+    'node_modules/bootstrap-datepicker/dist/js/bootstrap-datepicker.js',
+    'node_modules/bootstrap-datepicker/dist/locales/bootstrap-datepicker.zh-CN.min.js',
+    'lib/jquery-Jcrop/js/Jcrop.js',
+    'lib/jquery-region/jquery.region.js',
+    'lib/jquery-uploadify/jquery.uploadify.js',
 ];
 gulp.task('concat', function () {
     gulp.src(jsLibs) //src里面能放数组。先后执行。
@@ -85,7 +89,6 @@ var jsmodules = [
 ];
 gulp.task('js', function () {
     jsmodules.forEach(function (jspath) {
-
         var jsArr = jspath.split('/');
         var jsName = jsArr.pop();
         jsArr.shift();

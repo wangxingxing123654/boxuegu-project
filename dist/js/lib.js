@@ -13240,3 +13240,6020 @@ if (typeof jQuery === 'undefined') {
   return NProgress;
 });
 
+
+/*!
+ * Datepicker for Bootstrap v1.7.1 (https://github.com/uxsolutions/bootstrap-datepicker)
+ *
+ * Licensed under the Apache License v2.0 (http://www.apache.org/licenses/LICENSE-2.0)
+ */
+
+(function(factory){
+    if (typeof define === "function" && define.amd) {
+        define(["jquery"], factory);
+    } else if (typeof exports === 'object') {
+        factory(require('jquery'));
+    } else {
+        factory(jQuery);
+    }
+}(function($, undefined){
+	function UTCDate(){
+		return new Date(Date.UTC.apply(Date, arguments));
+	}
+	function UTCToday(){
+		var today = new Date();
+		return UTCDate(today.getFullYear(), today.getMonth(), today.getDate());
+	}
+	function isUTCEquals(date1, date2) {
+		return (
+			date1.getUTCFullYear() === date2.getUTCFullYear() &&
+			date1.getUTCMonth() === date2.getUTCMonth() &&
+			date1.getUTCDate() === date2.getUTCDate()
+		);
+	}
+	function alias(method, deprecationMsg){
+		return function(){
+			if (deprecationMsg !== undefined) {
+				$.fn.datepicker.deprecated(deprecationMsg);
+			}
+
+			return this[method].apply(this, arguments);
+		};
+	}
+	function isValidDate(d) {
+		return d && !isNaN(d.getTime());
+	}
+
+	var DateArray = (function(){
+		var extras = {
+			get: function(i){
+				return this.slice(i)[0];
+			},
+			contains: function(d){
+				// Array.indexOf is not cross-browser;
+				// $.inArray doesn't work with Dates
+				var val = d && d.valueOf();
+				for (var i=0, l=this.length; i < l; i++)
+          // Use date arithmetic to allow dates with different times to match
+          if (0 <= this[i].valueOf() - val && this[i].valueOf() - val < 1000*60*60*24)
+						return i;
+				return -1;
+			},
+			remove: function(i){
+				this.splice(i,1);
+			},
+			replace: function(new_array){
+				if (!new_array)
+					return;
+				if (!$.isArray(new_array))
+					new_array = [new_array];
+				this.clear();
+				this.push.apply(this, new_array);
+			},
+			clear: function(){
+				this.length = 0;
+			},
+			copy: function(){
+				var a = new DateArray();
+				a.replace(this);
+				return a;
+			}
+		};
+
+		return function(){
+			var a = [];
+			a.push.apply(a, arguments);
+			$.extend(a, extras);
+			return a;
+		};
+	})();
+
+
+	// Picker object
+
+	var Datepicker = function(element, options){
+		$.data(element, 'datepicker', this);
+		this._process_options(options);
+
+		this.dates = new DateArray();
+		this.viewDate = this.o.defaultViewDate;
+		this.focusDate = null;
+
+		this.element = $(element);
+		this.isInput = this.element.is('input');
+		this.inputField = this.isInput ? this.element : this.element.find('input');
+		this.component = this.element.hasClass('date') ? this.element.find('.add-on, .input-group-addon, .btn') : false;
+		if (this.component && this.component.length === 0)
+			this.component = false;
+		this.isInline = !this.component && this.element.is('div');
+
+		this.picker = $(DPGlobal.template);
+
+		// Checking templates and inserting
+		if (this._check_template(this.o.templates.leftArrow)) {
+			this.picker.find('.prev').html(this.o.templates.leftArrow);
+		}
+
+		if (this._check_template(this.o.templates.rightArrow)) {
+			this.picker.find('.next').html(this.o.templates.rightArrow);
+		}
+
+		this._buildEvents();
+		this._attachEvents();
+
+		if (this.isInline){
+			this.picker.addClass('datepicker-inline').appendTo(this.element);
+		}
+		else {
+			this.picker.addClass('datepicker-dropdown dropdown-menu');
+		}
+
+		if (this.o.rtl){
+			this.picker.addClass('datepicker-rtl');
+		}
+
+		if (this.o.calendarWeeks) {
+			this.picker.find('.datepicker-days .datepicker-switch, thead .datepicker-title, tfoot .today, tfoot .clear')
+				.attr('colspan', function(i, val){
+					return Number(val) + 1;
+				});
+		}
+
+		this._process_options({
+			startDate: this._o.startDate,
+			endDate: this._o.endDate,
+			daysOfWeekDisabled: this.o.daysOfWeekDisabled,
+			daysOfWeekHighlighted: this.o.daysOfWeekHighlighted,
+			datesDisabled: this.o.datesDisabled
+		});
+
+		this._allow_update = false;
+		this.setViewMode(this.o.startView);
+		this._allow_update = true;
+
+		this.fillDow();
+		this.fillMonths();
+
+		this.update();
+
+		if (this.isInline){
+			this.show();
+		}
+	};
+
+	Datepicker.prototype = {
+		constructor: Datepicker,
+
+		_resolveViewName: function(view){
+			$.each(DPGlobal.viewModes, function(i, viewMode){
+				if (view === i || $.inArray(view, viewMode.names) !== -1){
+					view = i;
+					return false;
+				}
+			});
+
+			return view;
+		},
+
+		_resolveDaysOfWeek: function(daysOfWeek){
+			if (!$.isArray(daysOfWeek))
+				daysOfWeek = daysOfWeek.split(/[,\s]*/);
+			return $.map(daysOfWeek, Number);
+		},
+
+		_check_template: function(tmp){
+			try {
+				// If empty
+				if (tmp === undefined || tmp === "") {
+					return false;
+				}
+				// If no html, everything ok
+				if ((tmp.match(/[<>]/g) || []).length <= 0) {
+					return true;
+				}
+				// Checking if html is fine
+				var jDom = $(tmp);
+				return jDom.length > 0;
+			}
+			catch (ex) {
+				return false;
+			}
+		},
+
+		_process_options: function(opts){
+			// Store raw options for reference
+			this._o = $.extend({}, this._o, opts);
+			// Processed options
+			var o = this.o = $.extend({}, this._o);
+
+			// Check if "de-DE" style date is available, if not language should
+			// fallback to 2 letter code eg "de"
+			var lang = o.language;
+			if (!dates[lang]){
+				lang = lang.split('-')[0];
+				if (!dates[lang])
+					lang = defaults.language;
+			}
+			o.language = lang;
+
+			// Retrieve view index from any aliases
+			o.startView = this._resolveViewName(o.startView);
+			o.minViewMode = this._resolveViewName(o.minViewMode);
+			o.maxViewMode = this._resolveViewName(o.maxViewMode);
+
+			// Check view is between min and max
+			o.startView = Math.max(this.o.minViewMode, Math.min(this.o.maxViewMode, o.startView));
+
+			// true, false, or Number > 0
+			if (o.multidate !== true){
+				o.multidate = Number(o.multidate) || false;
+				if (o.multidate !== false)
+					o.multidate = Math.max(0, o.multidate);
+			}
+			o.multidateSeparator = String(o.multidateSeparator);
+
+			o.weekStart %= 7;
+			o.weekEnd = (o.weekStart + 6) % 7;
+
+			var format = DPGlobal.parseFormat(o.format);
+			if (o.startDate !== -Infinity){
+				if (!!o.startDate){
+					if (o.startDate instanceof Date)
+						o.startDate = this._local_to_utc(this._zero_time(o.startDate));
+					else
+						o.startDate = DPGlobal.parseDate(o.startDate, format, o.language, o.assumeNearbyYear);
+				}
+				else {
+					o.startDate = -Infinity;
+				}
+			}
+			if (o.endDate !== Infinity){
+				if (!!o.endDate){
+					if (o.endDate instanceof Date)
+						o.endDate = this._local_to_utc(this._zero_time(o.endDate));
+					else
+						o.endDate = DPGlobal.parseDate(o.endDate, format, o.language, o.assumeNearbyYear);
+				}
+				else {
+					o.endDate = Infinity;
+				}
+			}
+
+			o.daysOfWeekDisabled = this._resolveDaysOfWeek(o.daysOfWeekDisabled||[]);
+			o.daysOfWeekHighlighted = this._resolveDaysOfWeek(o.daysOfWeekHighlighted||[]);
+
+			o.datesDisabled = o.datesDisabled||[];
+			if (!$.isArray(o.datesDisabled)) {
+				o.datesDisabled = o.datesDisabled.split(',');
+			}
+			o.datesDisabled = $.map(o.datesDisabled, function(d){
+				return DPGlobal.parseDate(d, format, o.language, o.assumeNearbyYear);
+			});
+
+			var plc = String(o.orientation).toLowerCase().split(/\s+/g),
+				_plc = o.orientation.toLowerCase();
+			plc = $.grep(plc, function(word){
+				return /^auto|left|right|top|bottom$/.test(word);
+			});
+			o.orientation = {x: 'auto', y: 'auto'};
+			if (!_plc || _plc === 'auto')
+				; // no action
+			else if (plc.length === 1){
+				switch (plc[0]){
+					case 'top':
+					case 'bottom':
+						o.orientation.y = plc[0];
+						break;
+					case 'left':
+					case 'right':
+						o.orientation.x = plc[0];
+						break;
+				}
+			}
+			else {
+				_plc = $.grep(plc, function(word){
+					return /^left|right$/.test(word);
+				});
+				o.orientation.x = _plc[0] || 'auto';
+
+				_plc = $.grep(plc, function(word){
+					return /^top|bottom$/.test(word);
+				});
+				o.orientation.y = _plc[0] || 'auto';
+			}
+			if (o.defaultViewDate instanceof Date || typeof o.defaultViewDate === 'string') {
+				o.defaultViewDate = DPGlobal.parseDate(o.defaultViewDate, format, o.language, o.assumeNearbyYear);
+			} else if (o.defaultViewDate) {
+				var year = o.defaultViewDate.year || new Date().getFullYear();
+				var month = o.defaultViewDate.month || 0;
+				var day = o.defaultViewDate.day || 1;
+				o.defaultViewDate = UTCDate(year, month, day);
+			} else {
+				o.defaultViewDate = UTCToday();
+			}
+		},
+		_events: [],
+		_secondaryEvents: [],
+		_applyEvents: function(evs){
+			for (var i=0, el, ch, ev; i < evs.length; i++){
+				el = evs[i][0];
+				if (evs[i].length === 2){
+					ch = undefined;
+					ev = evs[i][1];
+				} else if (evs[i].length === 3){
+					ch = evs[i][1];
+					ev = evs[i][2];
+				}
+				el.on(ev, ch);
+			}
+		},
+		_unapplyEvents: function(evs){
+			for (var i=0, el, ev, ch; i < evs.length; i++){
+				el = evs[i][0];
+				if (evs[i].length === 2){
+					ch = undefined;
+					ev = evs[i][1];
+				} else if (evs[i].length === 3){
+					ch = evs[i][1];
+					ev = evs[i][2];
+				}
+				el.off(ev, ch);
+			}
+		},
+		_buildEvents: function(){
+            var events = {
+                keyup: $.proxy(function(e){
+                    if ($.inArray(e.keyCode, [27, 37, 39, 38, 40, 32, 13, 9]) === -1)
+                        this.update();
+                }, this),
+                keydown: $.proxy(this.keydown, this),
+                paste: $.proxy(this.paste, this)
+            };
+
+            if (this.o.showOnFocus === true) {
+                events.focus = $.proxy(this.show, this);
+            }
+
+            if (this.isInput) { // single input
+                this._events = [
+                    [this.element, events]
+                ];
+            }
+            // component: input + button
+            else if (this.component && this.inputField.length) {
+                this._events = [
+                    // For components that are not readonly, allow keyboard nav
+                    [this.inputField, events],
+                    [this.component, {
+                        click: $.proxy(this.show, this)
+                    }]
+                ];
+            }
+			else {
+				this._events = [
+					[this.element, {
+						click: $.proxy(this.show, this),
+						keydown: $.proxy(this.keydown, this)
+					}]
+				];
+			}
+			this._events.push(
+				// Component: listen for blur on element descendants
+				[this.element, '*', {
+					blur: $.proxy(function(e){
+						this._focused_from = e.target;
+					}, this)
+				}],
+				// Input: listen for blur on element
+				[this.element, {
+					blur: $.proxy(function(e){
+						this._focused_from = e.target;
+					}, this)
+				}]
+			);
+
+			if (this.o.immediateUpdates) {
+				// Trigger input updates immediately on changed year/month
+				this._events.push([this.element, {
+					'changeYear changeMonth': $.proxy(function(e){
+						this.update(e.date);
+					}, this)
+				}]);
+			}
+
+			this._secondaryEvents = [
+				[this.picker, {
+					click: $.proxy(this.click, this)
+				}],
+				[this.picker, '.prev, .next', {
+					click: $.proxy(this.navArrowsClick, this)
+				}],
+				[this.picker, '.day:not(.disabled)', {
+					click: $.proxy(this.dayCellClick, this)
+				}],
+				[$(window), {
+					resize: $.proxy(this.place, this)
+				}],
+				[$(document), {
+					'mousedown touchstart': $.proxy(function(e){
+						// Clicked outside the datepicker, hide it
+						if (!(
+							this.element.is(e.target) ||
+							this.element.find(e.target).length ||
+							this.picker.is(e.target) ||
+							this.picker.find(e.target).length ||
+							this.isInline
+						)){
+							this.hide();
+						}
+					}, this)
+				}]
+			];
+		},
+		_attachEvents: function(){
+			this._detachEvents();
+			this._applyEvents(this._events);
+		},
+		_detachEvents: function(){
+			this._unapplyEvents(this._events);
+		},
+		_attachSecondaryEvents: function(){
+			this._detachSecondaryEvents();
+			this._applyEvents(this._secondaryEvents);
+		},
+		_detachSecondaryEvents: function(){
+			this._unapplyEvents(this._secondaryEvents);
+		},
+		_trigger: function(event, altdate){
+			var date = altdate || this.dates.get(-1),
+				local_date = this._utc_to_local(date);
+
+			this.element.trigger({
+				type: event,
+				date: local_date,
+				viewMode: this.viewMode,
+				dates: $.map(this.dates, this._utc_to_local),
+				format: $.proxy(function(ix, format){
+					if (arguments.length === 0){
+						ix = this.dates.length - 1;
+						format = this.o.format;
+					} else if (typeof ix === 'string'){
+						format = ix;
+						ix = this.dates.length - 1;
+					}
+					format = format || this.o.format;
+					var date = this.dates.get(ix);
+					return DPGlobal.formatDate(date, format, this.o.language);
+				}, this)
+			});
+		},
+
+		show: function(){
+			if (this.inputField.prop('disabled') || (this.inputField.prop('readonly') && this.o.enableOnReadonly === false))
+				return;
+			if (!this.isInline)
+				this.picker.appendTo(this.o.container);
+			this.place();
+			this.picker.show();
+			this._attachSecondaryEvents();
+			this._trigger('show');
+			if ((window.navigator.msMaxTouchPoints || 'ontouchstart' in document) && this.o.disableTouchKeyboard) {
+				$(this.element).blur();
+			}
+			return this;
+		},
+
+		hide: function(){
+			if (this.isInline || !this.picker.is(':visible'))
+				return this;
+			this.focusDate = null;
+			this.picker.hide().detach();
+			this._detachSecondaryEvents();
+			this.setViewMode(this.o.startView);
+
+			if (this.o.forceParse && this.inputField.val())
+				this.setValue();
+			this._trigger('hide');
+			return this;
+		},
+
+		destroy: function(){
+			this.hide();
+			this._detachEvents();
+			this._detachSecondaryEvents();
+			this.picker.remove();
+			delete this.element.data().datepicker;
+			if (!this.isInput){
+				delete this.element.data().date;
+			}
+			return this;
+		},
+
+		paste: function(e){
+			var dateString;
+			if (e.originalEvent.clipboardData && e.originalEvent.clipboardData.types
+				&& $.inArray('text/plain', e.originalEvent.clipboardData.types) !== -1) {
+				dateString = e.originalEvent.clipboardData.getData('text/plain');
+			} else if (window.clipboardData) {
+				dateString = window.clipboardData.getData('Text');
+			} else {
+				return;
+			}
+			this.setDate(dateString);
+			this.update();
+			e.preventDefault();
+		},
+
+		_utc_to_local: function(utc){
+			if (!utc) {
+				return utc;
+			}
+
+			var local = new Date(utc.getTime() + (utc.getTimezoneOffset() * 60000));
+
+			if (local.getTimezoneOffset() !== utc.getTimezoneOffset()) {
+				local = new Date(utc.getTime() + (local.getTimezoneOffset() * 60000));
+			}
+
+			return local;
+		},
+		_local_to_utc: function(local){
+			return local && new Date(local.getTime() - (local.getTimezoneOffset()*60000));
+		},
+		_zero_time: function(local){
+			return local && new Date(local.getFullYear(), local.getMonth(), local.getDate());
+		},
+		_zero_utc_time: function(utc){
+			return utc && UTCDate(utc.getUTCFullYear(), utc.getUTCMonth(), utc.getUTCDate());
+		},
+
+		getDates: function(){
+			return $.map(this.dates, this._utc_to_local);
+		},
+
+		getUTCDates: function(){
+			return $.map(this.dates, function(d){
+				return new Date(d);
+			});
+		},
+
+		getDate: function(){
+			return this._utc_to_local(this.getUTCDate());
+		},
+
+		getUTCDate: function(){
+			var selected_date = this.dates.get(-1);
+			if (selected_date !== undefined) {
+				return new Date(selected_date);
+			} else {
+				return null;
+			}
+		},
+
+		clearDates: function(){
+			this.inputField.val('');
+			this.update();
+			this._trigger('changeDate');
+
+			if (this.o.autoclose) {
+				this.hide();
+			}
+		},
+
+		setDates: function(){
+			var args = $.isArray(arguments[0]) ? arguments[0] : arguments;
+			this.update.apply(this, args);
+			this._trigger('changeDate');
+			this.setValue();
+			return this;
+		},
+
+		setUTCDates: function(){
+			var args = $.isArray(arguments[0]) ? arguments[0] : arguments;
+			this.setDates.apply(this, $.map(args, this._utc_to_local));
+			return this;
+		},
+
+		setDate: alias('setDates'),
+		setUTCDate: alias('setUTCDates'),
+		remove: alias('destroy', 'Method `remove` is deprecated and will be removed in version 2.0. Use `destroy` instead'),
+
+		setValue: function(){
+			var formatted = this.getFormattedDate();
+			this.inputField.val(formatted);
+			return this;
+		},
+
+		getFormattedDate: function(format){
+			if (format === undefined)
+				format = this.o.format;
+
+			var lang = this.o.language;
+			return $.map(this.dates, function(d){
+				return DPGlobal.formatDate(d, format, lang);
+			}).join(this.o.multidateSeparator);
+		},
+
+		getStartDate: function(){
+			return this.o.startDate;
+		},
+
+		setStartDate: function(startDate){
+			this._process_options({startDate: startDate});
+			this.update();
+			this.updateNavArrows();
+			return this;
+		},
+
+		getEndDate: function(){
+			return this.o.endDate;
+		},
+
+		setEndDate: function(endDate){
+			this._process_options({endDate: endDate});
+			this.update();
+			this.updateNavArrows();
+			return this;
+		},
+
+		setDaysOfWeekDisabled: function(daysOfWeekDisabled){
+			this._process_options({daysOfWeekDisabled: daysOfWeekDisabled});
+			this.update();
+			return this;
+		},
+
+		setDaysOfWeekHighlighted: function(daysOfWeekHighlighted){
+			this._process_options({daysOfWeekHighlighted: daysOfWeekHighlighted});
+			this.update();
+			return this;
+		},
+
+		setDatesDisabled: function(datesDisabled){
+			this._process_options({datesDisabled: datesDisabled});
+			this.update();
+			return this;
+		},
+
+		place: function(){
+			if (this.isInline)
+				return this;
+			var calendarWidth = this.picker.outerWidth(),
+				calendarHeight = this.picker.outerHeight(),
+				visualPadding = 10,
+				container = $(this.o.container),
+				windowWidth = container.width(),
+				scrollTop = this.o.container === 'body' ? $(document).scrollTop() : container.scrollTop(),
+				appendOffset = container.offset();
+
+			var parentsZindex = [0];
+			this.element.parents().each(function(){
+				var itemZIndex = $(this).css('z-index');
+				if (itemZIndex !== 'auto' && Number(itemZIndex) !== 0) parentsZindex.push(Number(itemZIndex));
+			});
+			var zIndex = Math.max.apply(Math, parentsZindex) + this.o.zIndexOffset;
+			var offset = this.component ? this.component.parent().offset() : this.element.offset();
+			var height = this.component ? this.component.outerHeight(true) : this.element.outerHeight(false);
+			var width = this.component ? this.component.outerWidth(true) : this.element.outerWidth(false);
+			var left = offset.left - appendOffset.left;
+			var top = offset.top - appendOffset.top;
+
+			if (this.o.container !== 'body') {
+				top += scrollTop;
+			}
+
+			this.picker.removeClass(
+				'datepicker-orient-top datepicker-orient-bottom '+
+				'datepicker-orient-right datepicker-orient-left'
+			);
+
+			if (this.o.orientation.x !== 'auto'){
+				this.picker.addClass('datepicker-orient-' + this.o.orientation.x);
+				if (this.o.orientation.x === 'right')
+					left -= calendarWidth - width;
+			}
+			// auto x orientation is best-placement: if it crosses a window
+			// edge, fudge it sideways
+			else {
+				if (offset.left < 0) {
+					// component is outside the window on the left side. Move it into visible range
+					this.picker.addClass('datepicker-orient-left');
+					left -= offset.left - visualPadding;
+				} else if (left + calendarWidth > windowWidth) {
+					// the calendar passes the widow right edge. Align it to component right side
+					this.picker.addClass('datepicker-orient-right');
+					left += width - calendarWidth;
+				} else {
+					if (this.o.rtl) {
+						// Default to right
+						this.picker.addClass('datepicker-orient-right');
+					} else {
+						// Default to left
+						this.picker.addClass('datepicker-orient-left');
+					}
+				}
+			}
+
+			// auto y orientation is best-situation: top or bottom, no fudging,
+			// decision based on which shows more of the calendar
+			var yorient = this.o.orientation.y,
+				top_overflow;
+			if (yorient === 'auto'){
+				top_overflow = -scrollTop + top - calendarHeight;
+				yorient = top_overflow < 0 ? 'bottom' : 'top';
+			}
+
+			this.picker.addClass('datepicker-orient-' + yorient);
+			if (yorient === 'top')
+				top -= calendarHeight + parseInt(this.picker.css('padding-top'));
+			else
+				top += height;
+
+			if (this.o.rtl) {
+				var right = windowWidth - (left + width);
+				this.picker.css({
+					top: top,
+					right: right,
+					zIndex: zIndex
+				});
+			} else {
+				this.picker.css({
+					top: top,
+					left: left,
+					zIndex: zIndex
+				});
+			}
+			return this;
+		},
+
+		_allow_update: true,
+		update: function(){
+			if (!this._allow_update)
+				return this;
+
+			var oldDates = this.dates.copy(),
+				dates = [],
+				fromArgs = false;
+			if (arguments.length){
+				$.each(arguments, $.proxy(function(i, date){
+					if (date instanceof Date)
+						date = this._local_to_utc(date);
+					dates.push(date);
+				}, this));
+				fromArgs = true;
+			} else {
+				dates = this.isInput
+						? this.element.val()
+						: this.element.data('date') || this.inputField.val();
+				if (dates && this.o.multidate)
+					dates = dates.split(this.o.multidateSeparator);
+				else
+					dates = [dates];
+				delete this.element.data().date;
+			}
+
+			dates = $.map(dates, $.proxy(function(date){
+				return DPGlobal.parseDate(date, this.o.format, this.o.language, this.o.assumeNearbyYear);
+			}, this));
+			dates = $.grep(dates, $.proxy(function(date){
+				return (
+					!this.dateWithinRange(date) ||
+					!date
+				);
+			}, this), true);
+			this.dates.replace(dates);
+
+			if (this.o.updateViewDate) {
+				if (this.dates.length)
+					this.viewDate = new Date(this.dates.get(-1));
+				else if (this.viewDate < this.o.startDate)
+					this.viewDate = new Date(this.o.startDate);
+				else if (this.viewDate > this.o.endDate)
+					this.viewDate = new Date(this.o.endDate);
+				else
+					this.viewDate = this.o.defaultViewDate;
+			}
+
+			if (fromArgs){
+				// setting date by clicking
+				this.setValue();
+				this.element.change();
+			}
+			else if (this.dates.length){
+				// setting date by typing
+				if (String(oldDates) !== String(this.dates) && fromArgs) {
+					this._trigger('changeDate');
+					this.element.change();
+				}
+			}
+			if (!this.dates.length && oldDates.length) {
+				this._trigger('clearDate');
+				this.element.change();
+			}
+
+			this.fill();
+			return this;
+		},
+
+		fillDow: function(){
+      if (this.o.showWeekDays) {
+			var dowCnt = this.o.weekStart,
+				html = '<tr>';
+			if (this.o.calendarWeeks){
+				html += '<th class="cw">&#160;</th>';
+			}
+			while (dowCnt < this.o.weekStart + 7){
+				html += '<th class="dow';
+        if ($.inArray(dowCnt, this.o.daysOfWeekDisabled) !== -1)
+          html += ' disabled';
+        html += '">'+dates[this.o.language].daysMin[(dowCnt++)%7]+'</th>';
+			}
+			html += '</tr>';
+			this.picker.find('.datepicker-days thead').append(html);
+      }
+		},
+
+		fillMonths: function(){
+      var localDate = this._utc_to_local(this.viewDate);
+			var html = '';
+			var focused;
+			for (var i = 0; i < 12; i++){
+				focused = localDate && localDate.getMonth() === i ? ' focused' : '';
+				html += '<span class="month' + focused + '">' + dates[this.o.language].monthsShort[i] + '</span>';
+			}
+			this.picker.find('.datepicker-months td').html(html);
+		},
+
+		setRange: function(range){
+			if (!range || !range.length)
+				delete this.range;
+			else
+				this.range = $.map(range, function(d){
+					return d.valueOf();
+				});
+			this.fill();
+		},
+
+		getClassNames: function(date){
+			var cls = [],
+				year = this.viewDate.getUTCFullYear(),
+				month = this.viewDate.getUTCMonth(),
+				today = UTCToday();
+			if (date.getUTCFullYear() < year || (date.getUTCFullYear() === year && date.getUTCMonth() < month)){
+				cls.push('old');
+			} else if (date.getUTCFullYear() > year || (date.getUTCFullYear() === year && date.getUTCMonth() > month)){
+				cls.push('new');
+			}
+			if (this.focusDate && date.valueOf() === this.focusDate.valueOf())
+				cls.push('focused');
+			// Compare internal UTC date with UTC today, not local today
+			if (this.o.todayHighlight && isUTCEquals(date, today)) {
+				cls.push('today');
+			}
+			if (this.dates.contains(date) !== -1)
+				cls.push('active');
+			if (!this.dateWithinRange(date)){
+				cls.push('disabled');
+			}
+			if (this.dateIsDisabled(date)){
+				cls.push('disabled', 'disabled-date');
+			}
+			if ($.inArray(date.getUTCDay(), this.o.daysOfWeekHighlighted) !== -1){
+				cls.push('highlighted');
+			}
+
+			if (this.range){
+				if (date > this.range[0] && date < this.range[this.range.length-1]){
+					cls.push('range');
+				}
+				if ($.inArray(date.valueOf(), this.range) !== -1){
+					cls.push('selected');
+				}
+				if (date.valueOf() === this.range[0]){
+          cls.push('range-start');
+        }
+        if (date.valueOf() === this.range[this.range.length-1]){
+          cls.push('range-end');
+        }
+			}
+			return cls;
+		},
+
+		_fill_yearsView: function(selector, cssClass, factor, year, startYear, endYear, beforeFn){
+			var html = '';
+			var step = factor / 10;
+			var view = this.picker.find(selector);
+			var startVal = Math.floor(year / factor) * factor;
+			var endVal = startVal + step * 9;
+			var focusedVal = Math.floor(this.viewDate.getFullYear() / step) * step;
+			var selected = $.map(this.dates, function(d){
+				return Math.floor(d.getUTCFullYear() / step) * step;
+			});
+
+			var classes, tooltip, before;
+			for (var currVal = startVal - step; currVal <= endVal + step; currVal += step) {
+				classes = [cssClass];
+				tooltip = null;
+
+				if (currVal === startVal - step) {
+					classes.push('old');
+				} else if (currVal === endVal + step) {
+					classes.push('new');
+				}
+				if ($.inArray(currVal, selected) !== -1) {
+					classes.push('active');
+				}
+				if (currVal < startYear || currVal > endYear) {
+					classes.push('disabled');
+				}
+				if (currVal === focusedVal) {
+				  classes.push('focused');
+        }
+
+				if (beforeFn !== $.noop) {
+					before = beforeFn(new Date(currVal, 0, 1));
+					if (before === undefined) {
+						before = {};
+					} else if (typeof before === 'boolean') {
+						before = {enabled: before};
+					} else if (typeof before === 'string') {
+						before = {classes: before};
+					}
+					if (before.enabled === false) {
+						classes.push('disabled');
+					}
+					if (before.classes) {
+						classes = classes.concat(before.classes.split(/\s+/));
+					}
+					if (before.tooltip) {
+						tooltip = before.tooltip;
+					}
+				}
+
+				html += '<span class="' + classes.join(' ') + '"' + (tooltip ? ' title="' + tooltip + '"' : '') + '>' + currVal + '</span>';
+			}
+
+			view.find('.datepicker-switch').text(startVal + '-' + endVal);
+			view.find('td').html(html);
+		},
+
+		fill: function(){
+			var d = new Date(this.viewDate),
+				year = d.getUTCFullYear(),
+				month = d.getUTCMonth(),
+				startYear = this.o.startDate !== -Infinity ? this.o.startDate.getUTCFullYear() : -Infinity,
+				startMonth = this.o.startDate !== -Infinity ? this.o.startDate.getUTCMonth() : -Infinity,
+				endYear = this.o.endDate !== Infinity ? this.o.endDate.getUTCFullYear() : Infinity,
+				endMonth = this.o.endDate !== Infinity ? this.o.endDate.getUTCMonth() : Infinity,
+				todaytxt = dates[this.o.language].today || dates['en'].today || '',
+				cleartxt = dates[this.o.language].clear || dates['en'].clear || '',
+				titleFormat = dates[this.o.language].titleFormat || dates['en'].titleFormat,
+				tooltip,
+				before;
+			if (isNaN(year) || isNaN(month))
+				return;
+			this.picker.find('.datepicker-days .datepicker-switch')
+						.text(DPGlobal.formatDate(d, titleFormat, this.o.language));
+			this.picker.find('tfoot .today')
+						.text(todaytxt)
+						.css('display', this.o.todayBtn === true || this.o.todayBtn === 'linked' ? 'table-cell' : 'none');
+			this.picker.find('tfoot .clear')
+						.text(cleartxt)
+						.css('display', this.o.clearBtn === true ? 'table-cell' : 'none');
+			this.picker.find('thead .datepicker-title')
+						.text(this.o.title)
+						.css('display', typeof this.o.title === 'string' && this.o.title !== '' ? 'table-cell' : 'none');
+			this.updateNavArrows();
+			this.fillMonths();
+			var prevMonth = UTCDate(year, month, 0),
+				day = prevMonth.getUTCDate();
+			prevMonth.setUTCDate(day - (prevMonth.getUTCDay() - this.o.weekStart + 7)%7);
+			var nextMonth = new Date(prevMonth);
+			if (prevMonth.getUTCFullYear() < 100){
+        nextMonth.setUTCFullYear(prevMonth.getUTCFullYear());
+      }
+			nextMonth.setUTCDate(nextMonth.getUTCDate() + 42);
+			nextMonth = nextMonth.valueOf();
+			var html = [];
+			var weekDay, clsName;
+			while (prevMonth.valueOf() < nextMonth){
+				weekDay = prevMonth.getUTCDay();
+				if (weekDay === this.o.weekStart){
+					html.push('<tr>');
+					if (this.o.calendarWeeks){
+						// ISO 8601: First week contains first thursday.
+						// ISO also states week starts on Monday, but we can be more abstract here.
+						var
+							// Start of current week: based on weekstart/current date
+							ws = new Date(+prevMonth + (this.o.weekStart - weekDay - 7) % 7 * 864e5),
+							// Thursday of this week
+							th = new Date(Number(ws) + (7 + 4 - ws.getUTCDay()) % 7 * 864e5),
+							// First Thursday of year, year from thursday
+							yth = new Date(Number(yth = UTCDate(th.getUTCFullYear(), 0, 1)) + (7 + 4 - yth.getUTCDay()) % 7 * 864e5),
+							// Calendar week: ms between thursdays, div ms per day, div 7 days
+							calWeek = (th - yth) / 864e5 / 7 + 1;
+						html.push('<td class="cw">'+ calWeek +'</td>');
+					}
+				}
+				clsName = this.getClassNames(prevMonth);
+				clsName.push('day');
+
+				var content = prevMonth.getUTCDate();
+
+				if (this.o.beforeShowDay !== $.noop){
+					before = this.o.beforeShowDay(this._utc_to_local(prevMonth));
+					if (before === undefined)
+						before = {};
+					else if (typeof before === 'boolean')
+						before = {enabled: before};
+					else if (typeof before === 'string')
+						before = {classes: before};
+					if (before.enabled === false)
+						clsName.push('disabled');
+					if (before.classes)
+						clsName = clsName.concat(before.classes.split(/\s+/));
+					if (before.tooltip)
+						tooltip = before.tooltip;
+					if (before.content)
+						content = before.content;
+				}
+
+				//Check if uniqueSort exists (supported by jquery >=1.12 and >=2.2)
+				//Fallback to unique function for older jquery versions
+				if ($.isFunction($.uniqueSort)) {
+					clsName = $.uniqueSort(clsName);
+				} else {
+					clsName = $.unique(clsName);
+				}
+
+				html.push('<td class="'+clsName.join(' ')+'"' + (tooltip ? ' title="'+tooltip+'"' : '') + ' data-date="' + prevMonth.getTime().toString() + '">' + content + '</td>');
+				tooltip = null;
+				if (weekDay === this.o.weekEnd){
+					html.push('</tr>');
+				}
+				prevMonth.setUTCDate(prevMonth.getUTCDate() + 1);
+			}
+			this.picker.find('.datepicker-days tbody').html(html.join(''));
+
+			var monthsTitle = dates[this.o.language].monthsTitle || dates['en'].monthsTitle || 'Months';
+			var months = this.picker.find('.datepicker-months')
+						.find('.datepicker-switch')
+							.text(this.o.maxViewMode < 2 ? monthsTitle : year)
+							.end()
+						.find('tbody span').removeClass('active');
+
+			$.each(this.dates, function(i, d){
+				if (d.getUTCFullYear() === year)
+					months.eq(d.getUTCMonth()).addClass('active');
+			});
+
+			if (year < startYear || year > endYear){
+				months.addClass('disabled');
+			}
+			if (year === startYear){
+				months.slice(0, startMonth).addClass('disabled');
+			}
+			if (year === endYear){
+				months.slice(endMonth+1).addClass('disabled');
+			}
+
+			if (this.o.beforeShowMonth !== $.noop){
+				var that = this;
+				$.each(months, function(i, month){
+          var moDate = new Date(year, i, 1);
+          var before = that.o.beforeShowMonth(moDate);
+					if (before === undefined)
+						before = {};
+					else if (typeof before === 'boolean')
+						before = {enabled: before};
+					else if (typeof before === 'string')
+						before = {classes: before};
+					if (before.enabled === false && !$(month).hasClass('disabled'))
+					    $(month).addClass('disabled');
+					if (before.classes)
+					    $(month).addClass(before.classes);
+					if (before.tooltip)
+					    $(month).prop('title', before.tooltip);
+				});
+			}
+
+			// Generating decade/years picker
+			this._fill_yearsView(
+				'.datepicker-years',
+				'year',
+				10,
+				year,
+				startYear,
+				endYear,
+				this.o.beforeShowYear
+			);
+
+			// Generating century/decades picker
+			this._fill_yearsView(
+				'.datepicker-decades',
+				'decade',
+				100,
+				year,
+				startYear,
+				endYear,
+				this.o.beforeShowDecade
+			);
+
+			// Generating millennium/centuries picker
+			this._fill_yearsView(
+				'.datepicker-centuries',
+				'century',
+				1000,
+				year,
+				startYear,
+				endYear,
+				this.o.beforeShowCentury
+			);
+		},
+
+		updateNavArrows: function(){
+			if (!this._allow_update)
+				return;
+
+			var d = new Date(this.viewDate),
+				year = d.getUTCFullYear(),
+				month = d.getUTCMonth(),
+				startYear = this.o.startDate !== -Infinity ? this.o.startDate.getUTCFullYear() : -Infinity,
+				startMonth = this.o.startDate !== -Infinity ? this.o.startDate.getUTCMonth() : -Infinity,
+				endYear = this.o.endDate !== Infinity ? this.o.endDate.getUTCFullYear() : Infinity,
+				endMonth = this.o.endDate !== Infinity ? this.o.endDate.getUTCMonth() : Infinity,
+				prevIsDisabled,
+				nextIsDisabled,
+				factor = 1;
+			switch (this.viewMode){
+				case 0:
+					prevIsDisabled = year <= startYear && month <= startMonth;
+					nextIsDisabled = year >= endYear && month >= endMonth;
+					break;
+				case 4:
+					factor *= 10;
+					/* falls through */
+				case 3:
+					factor *= 10;
+					/* falls through */
+				case 2:
+					factor *= 10;
+					/* falls through */
+				case 1:
+					prevIsDisabled = Math.floor(year / factor) * factor <= startYear;
+					nextIsDisabled = Math.floor(year / factor) * factor + factor >= endYear;
+					break;
+			}
+
+			this.picker.find('.prev').toggleClass('disabled', prevIsDisabled);
+			this.picker.find('.next').toggleClass('disabled', nextIsDisabled);
+		},
+
+		click: function(e){
+			e.preventDefault();
+			e.stopPropagation();
+
+			var target, dir, day, year, month;
+			target = $(e.target);
+
+			// Clicked on the switch
+			if (target.hasClass('datepicker-switch') && this.viewMode !== this.o.maxViewMode){
+				this.setViewMode(this.viewMode + 1);
+			}
+
+			// Clicked on today button
+			if (target.hasClass('today') && !target.hasClass('day')){
+				this.setViewMode(0);
+				this._setDate(UTCToday(), this.o.todayBtn === 'linked' ? null : 'view');
+			}
+
+			// Clicked on clear button
+			if (target.hasClass('clear')){
+				this.clearDates();
+			}
+
+			if (!target.hasClass('disabled')){
+				// Clicked on a month, year, decade, century
+				if (target.hasClass('month')
+						|| target.hasClass('year')
+						|| target.hasClass('decade')
+						|| target.hasClass('century')) {
+					this.viewDate.setUTCDate(1);
+
+					day = 1;
+					if (this.viewMode === 1){
+						month = target.parent().find('span').index(target);
+						year = this.viewDate.getUTCFullYear();
+						this.viewDate.setUTCMonth(month);
+					} else {
+						month = 0;
+						year = Number(target.text());
+						this.viewDate.setUTCFullYear(year);
+					}
+
+					this._trigger(DPGlobal.viewModes[this.viewMode - 1].e, this.viewDate);
+
+					if (this.viewMode === this.o.minViewMode){
+						this._setDate(UTCDate(year, month, day));
+					} else {
+						this.setViewMode(this.viewMode - 1);
+						this.fill();
+					}
+				}
+			}
+
+			if (this.picker.is(':visible') && this._focused_from){
+				this._focused_from.focus();
+			}
+			delete this._focused_from;
+		},
+
+		dayCellClick: function(e){
+			var $target = $(e.currentTarget);
+			var timestamp = $target.data('date');
+			var date = new Date(timestamp);
+
+			if (this.o.updateViewDate) {
+				if (date.getUTCFullYear() !== this.viewDate.getUTCFullYear()) {
+					this._trigger('changeYear', this.viewDate);
+				}
+
+				if (date.getUTCMonth() !== this.viewDate.getUTCMonth()) {
+					this._trigger('changeMonth', this.viewDate);
+				}
+			}
+			this._setDate(date);
+		},
+
+		// Clicked on prev or next
+		navArrowsClick: function(e){
+			var $target = $(e.currentTarget);
+			var dir = $target.hasClass('prev') ? -1 : 1;
+			if (this.viewMode !== 0){
+				dir *= DPGlobal.viewModes[this.viewMode].navStep * 12;
+			}
+			this.viewDate = this.moveMonth(this.viewDate, dir);
+			this._trigger(DPGlobal.viewModes[this.viewMode].e, this.viewDate);
+			this.fill();
+		},
+
+		_toggle_multidate: function(date){
+			var ix = this.dates.contains(date);
+			if (!date){
+				this.dates.clear();
+			}
+
+			if (ix !== -1){
+				if (this.o.multidate === true || this.o.multidate > 1 || this.o.toggleActive){
+					this.dates.remove(ix);
+				}
+			} else if (this.o.multidate === false) {
+				this.dates.clear();
+				this.dates.push(date);
+			}
+			else {
+				this.dates.push(date);
+			}
+
+			if (typeof this.o.multidate === 'number')
+				while (this.dates.length > this.o.multidate)
+					this.dates.remove(0);
+		},
+
+		_setDate: function(date, which){
+			if (!which || which === 'date')
+				this._toggle_multidate(date && new Date(date));
+			if ((!which && this.o.updateViewDate) || which === 'view')
+				this.viewDate = date && new Date(date);
+
+			this.fill();
+			this.setValue();
+			if (!which || which !== 'view') {
+				this._trigger('changeDate');
+			}
+			this.inputField.trigger('change');
+			if (this.o.autoclose && (!which || which === 'date')){
+				this.hide();
+			}
+		},
+
+		moveDay: function(date, dir){
+			var newDate = new Date(date);
+			newDate.setUTCDate(date.getUTCDate() + dir);
+
+			return newDate;
+		},
+
+		moveWeek: function(date, dir){
+			return this.moveDay(date, dir * 7);
+		},
+
+		moveMonth: function(date, dir){
+			if (!isValidDate(date))
+				return this.o.defaultViewDate;
+			if (!dir)
+				return date;
+			var new_date = new Date(date.valueOf()),
+				day = new_date.getUTCDate(),
+				month = new_date.getUTCMonth(),
+				mag = Math.abs(dir),
+				new_month, test;
+			dir = dir > 0 ? 1 : -1;
+			if (mag === 1){
+				test = dir === -1
+					// If going back one month, make sure month is not current month
+					// (eg, Mar 31 -> Feb 31 == Feb 28, not Mar 02)
+					? function(){
+						return new_date.getUTCMonth() === month;
+					}
+					// If going forward one month, make sure month is as expected
+					// (eg, Jan 31 -> Feb 31 == Feb 28, not Mar 02)
+					: function(){
+						return new_date.getUTCMonth() !== new_month;
+					};
+				new_month = month + dir;
+				new_date.setUTCMonth(new_month);
+				// Dec -> Jan (12) or Jan -> Dec (-1) -- limit expected date to 0-11
+				new_month = (new_month + 12) % 12;
+			}
+			else {
+				// For magnitudes >1, move one month at a time...
+				for (var i=0; i < mag; i++)
+					// ...which might decrease the day (eg, Jan 31 to Feb 28, etc)...
+					new_date = this.moveMonth(new_date, dir);
+				// ...then reset the day, keeping it in the new month
+				new_month = new_date.getUTCMonth();
+				new_date.setUTCDate(day);
+				test = function(){
+					return new_month !== new_date.getUTCMonth();
+				};
+			}
+			// Common date-resetting loop -- if date is beyond end of month, make it
+			// end of month
+			while (test()){
+				new_date.setUTCDate(--day);
+				new_date.setUTCMonth(new_month);
+			}
+			return new_date;
+		},
+
+		moveYear: function(date, dir){
+			return this.moveMonth(date, dir*12);
+		},
+
+		moveAvailableDate: function(date, dir, fn){
+			do {
+				date = this[fn](date, dir);
+
+				if (!this.dateWithinRange(date))
+					return false;
+
+				fn = 'moveDay';
+			}
+			while (this.dateIsDisabled(date));
+
+			return date;
+		},
+
+		weekOfDateIsDisabled: function(date){
+			return $.inArray(date.getUTCDay(), this.o.daysOfWeekDisabled) !== -1;
+		},
+
+		dateIsDisabled: function(date){
+			return (
+				this.weekOfDateIsDisabled(date) ||
+				$.grep(this.o.datesDisabled, function(d){
+					return isUTCEquals(date, d);
+				}).length > 0
+			);
+		},
+
+		dateWithinRange: function(date){
+			return date >= this.o.startDate && date <= this.o.endDate;
+		},
+
+		keydown: function(e){
+			if (!this.picker.is(':visible')){
+				if (e.keyCode === 40 || e.keyCode === 27) { // allow down to re-show picker
+					this.show();
+					e.stopPropagation();
+        }
+				return;
+			}
+			var dateChanged = false,
+				dir, newViewDate,
+				focusDate = this.focusDate || this.viewDate;
+			switch (e.keyCode){
+				case 27: // escape
+					if (this.focusDate){
+						this.focusDate = null;
+						this.viewDate = this.dates.get(-1) || this.viewDate;
+						this.fill();
+					}
+					else
+						this.hide();
+					e.preventDefault();
+					e.stopPropagation();
+					break;
+				case 37: // left
+				case 38: // up
+				case 39: // right
+				case 40: // down
+					if (!this.o.keyboardNavigation || this.o.daysOfWeekDisabled.length === 7)
+						break;
+					dir = e.keyCode === 37 || e.keyCode === 38 ? -1 : 1;
+          if (this.viewMode === 0) {
+  					if (e.ctrlKey){
+  						newViewDate = this.moveAvailableDate(focusDate, dir, 'moveYear');
+
+  						if (newViewDate)
+  							this._trigger('changeYear', this.viewDate);
+  					} else if (e.shiftKey){
+  						newViewDate = this.moveAvailableDate(focusDate, dir, 'moveMonth');
+
+  						if (newViewDate)
+  							this._trigger('changeMonth', this.viewDate);
+  					} else if (e.keyCode === 37 || e.keyCode === 39){
+  						newViewDate = this.moveAvailableDate(focusDate, dir, 'moveDay');
+  					} else if (!this.weekOfDateIsDisabled(focusDate)){
+  						newViewDate = this.moveAvailableDate(focusDate, dir, 'moveWeek');
+  					}
+          } else if (this.viewMode === 1) {
+            if (e.keyCode === 38 || e.keyCode === 40) {
+              dir = dir * 4;
+            }
+            newViewDate = this.moveAvailableDate(focusDate, dir, 'moveMonth');
+          } else if (this.viewMode === 2) {
+            if (e.keyCode === 38 || e.keyCode === 40) {
+              dir = dir * 4;
+            }
+            newViewDate = this.moveAvailableDate(focusDate, dir, 'moveYear');
+          }
+					if (newViewDate){
+						this.focusDate = this.viewDate = newViewDate;
+						this.setValue();
+						this.fill();
+						e.preventDefault();
+					}
+					break;
+				case 13: // enter
+					if (!this.o.forceParse)
+						break;
+					focusDate = this.focusDate || this.dates.get(-1) || this.viewDate;
+					if (this.o.keyboardNavigation) {
+						this._toggle_multidate(focusDate);
+						dateChanged = true;
+					}
+					this.focusDate = null;
+					this.viewDate = this.dates.get(-1) || this.viewDate;
+					this.setValue();
+					this.fill();
+					if (this.picker.is(':visible')){
+						e.preventDefault();
+						e.stopPropagation();
+						if (this.o.autoclose)
+							this.hide();
+					}
+					break;
+				case 9: // tab
+					this.focusDate = null;
+					this.viewDate = this.dates.get(-1) || this.viewDate;
+					this.fill();
+					this.hide();
+					break;
+			}
+			if (dateChanged){
+				if (this.dates.length)
+					this._trigger('changeDate');
+				else
+					this._trigger('clearDate');
+				this.inputField.trigger('change');
+			}
+		},
+
+		setViewMode: function(viewMode){
+			this.viewMode = viewMode;
+			this.picker
+				.children('div')
+				.hide()
+				.filter('.datepicker-' + DPGlobal.viewModes[this.viewMode].clsName)
+					.show();
+			this.updateNavArrows();
+      this._trigger('changeViewMode', new Date(this.viewDate));
+		}
+	};
+
+	var DateRangePicker = function(element, options){
+		$.data(element, 'datepicker', this);
+		this.element = $(element);
+		this.inputs = $.map(options.inputs, function(i){
+			return i.jquery ? i[0] : i;
+		});
+		delete options.inputs;
+
+		this.keepEmptyValues = options.keepEmptyValues;
+		delete options.keepEmptyValues;
+
+		datepickerPlugin.call($(this.inputs), options)
+			.on('changeDate', $.proxy(this.dateUpdated, this));
+
+		this.pickers = $.map(this.inputs, function(i){
+			return $.data(i, 'datepicker');
+		});
+		this.updateDates();
+	};
+	DateRangePicker.prototype = {
+		updateDates: function(){
+			this.dates = $.map(this.pickers, function(i){
+				return i.getUTCDate();
+			});
+			this.updateRanges();
+		},
+		updateRanges: function(){
+			var range = $.map(this.dates, function(d){
+				return d.valueOf();
+			});
+			$.each(this.pickers, function(i, p){
+				p.setRange(range);
+			});
+		},
+		dateUpdated: function(e){
+			// `this.updating` is a workaround for preventing infinite recursion
+			// between `changeDate` triggering and `setUTCDate` calling.  Until
+			// there is a better mechanism.
+			if (this.updating)
+				return;
+			this.updating = true;
+
+			var dp = $.data(e.target, 'datepicker');
+
+			if (dp === undefined) {
+				return;
+			}
+
+			var new_date = dp.getUTCDate(),
+				keep_empty_values = this.keepEmptyValues,
+				i = $.inArray(e.target, this.inputs),
+				j = i - 1,
+				k = i + 1,
+				l = this.inputs.length;
+			if (i === -1)
+				return;
+
+			$.each(this.pickers, function(i, p){
+				if (!p.getUTCDate() && (p === dp || !keep_empty_values))
+					p.setUTCDate(new_date);
+			});
+
+			if (new_date < this.dates[j]){
+				// Date being moved earlier/left
+				while (j >= 0 && new_date < this.dates[j]){
+					this.pickers[j--].setUTCDate(new_date);
+				}
+			} else if (new_date > this.dates[k]){
+				// Date being moved later/right
+				while (k < l && new_date > this.dates[k]){
+					this.pickers[k++].setUTCDate(new_date);
+				}
+			}
+			this.updateDates();
+
+			delete this.updating;
+		},
+		destroy: function(){
+			$.map(this.pickers, function(p){ p.destroy(); });
+			$(this.inputs).off('changeDate', this.dateUpdated);
+			delete this.element.data().datepicker;
+		},
+		remove: alias('destroy', 'Method `remove` is deprecated and will be removed in version 2.0. Use `destroy` instead')
+	};
+
+	function opts_from_el(el, prefix){
+		// Derive options from element data-attrs
+		var data = $(el).data(),
+			out = {}, inkey,
+			replace = new RegExp('^' + prefix.toLowerCase() + '([A-Z])');
+		prefix = new RegExp('^' + prefix.toLowerCase());
+		function re_lower(_,a){
+			return a.toLowerCase();
+		}
+		for (var key in data)
+			if (prefix.test(key)){
+				inkey = key.replace(replace, re_lower);
+				out[inkey] = data[key];
+			}
+		return out;
+	}
+
+	function opts_from_locale(lang){
+		// Derive options from locale plugins
+		var out = {};
+		// Check if "de-DE" style date is available, if not language should
+		// fallback to 2 letter code eg "de"
+		if (!dates[lang]){
+			lang = lang.split('-')[0];
+			if (!dates[lang])
+				return;
+		}
+		var d = dates[lang];
+		$.each(locale_opts, function(i,k){
+			if (k in d)
+				out[k] = d[k];
+		});
+		return out;
+	}
+
+	var old = $.fn.datepicker;
+	var datepickerPlugin = function(option){
+		var args = Array.apply(null, arguments);
+		args.shift();
+		var internal_return;
+		this.each(function(){
+			var $this = $(this),
+				data = $this.data('datepicker'),
+				options = typeof option === 'object' && option;
+			if (!data){
+				var elopts = opts_from_el(this, 'date'),
+					// Preliminary otions
+					xopts = $.extend({}, defaults, elopts, options),
+					locopts = opts_from_locale(xopts.language),
+					// Options priority: js args, data-attrs, locales, defaults
+					opts = $.extend({}, defaults, locopts, elopts, options);
+				if ($this.hasClass('input-daterange') || opts.inputs){
+					$.extend(opts, {
+						inputs: opts.inputs || $this.find('input').toArray()
+					});
+					data = new DateRangePicker(this, opts);
+				}
+				else {
+					data = new Datepicker(this, opts);
+				}
+				$this.data('datepicker', data);
+			}
+			if (typeof option === 'string' && typeof data[option] === 'function'){
+				internal_return = data[option].apply(data, args);
+			}
+		});
+
+		if (
+			internal_return === undefined ||
+			internal_return instanceof Datepicker ||
+			internal_return instanceof DateRangePicker
+		)
+			return this;
+
+		if (this.length > 1)
+			throw new Error('Using only allowed for the collection of a single element (' + option + ' function)');
+		else
+			return internal_return;
+	};
+	$.fn.datepicker = datepickerPlugin;
+
+	var defaults = $.fn.datepicker.defaults = {
+		assumeNearbyYear: false,
+		autoclose: false,
+		beforeShowDay: $.noop,
+		beforeShowMonth: $.noop,
+		beforeShowYear: $.noop,
+		beforeShowDecade: $.noop,
+		beforeShowCentury: $.noop,
+		calendarWeeks: false,
+		clearBtn: false,
+		toggleActive: false,
+		daysOfWeekDisabled: [],
+		daysOfWeekHighlighted: [],
+		datesDisabled: [],
+		endDate: Infinity,
+		forceParse: true,
+		format: 'mm/dd/yyyy',
+		keepEmptyValues: false,
+		keyboardNavigation: true,
+		language: 'en',
+		minViewMode: 0,
+		maxViewMode: 4,
+		multidate: false,
+		multidateSeparator: ',',
+		orientation: "auto",
+		rtl: false,
+		startDate: -Infinity,
+		startView: 0,
+		todayBtn: false,
+		todayHighlight: false,
+		updateViewDate: true,
+		weekStart: 0,
+		disableTouchKeyboard: false,
+		enableOnReadonly: true,
+		showOnFocus: true,
+		zIndexOffset: 10,
+		container: 'body',
+		immediateUpdates: false,
+		title: '',
+		templates: {
+			leftArrow: '&#x00AB;',
+			rightArrow: '&#x00BB;'
+		},
+    showWeekDays: true
+	};
+	var locale_opts = $.fn.datepicker.locale_opts = [
+		'format',
+		'rtl',
+		'weekStart'
+	];
+	$.fn.datepicker.Constructor = Datepicker;
+	var dates = $.fn.datepicker.dates = {
+		en: {
+			days: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+			daysShort: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+			daysMin: ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"],
+			months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+			monthsShort: ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"],
+			today: "Today",
+			clear: "Clear",
+			titleFormat: "MM yyyy"
+		}
+	};
+
+	var DPGlobal = {
+		viewModes: [
+			{
+				names: ['days', 'month'],
+				clsName: 'days',
+				e: 'changeMonth'
+			},
+			{
+				names: ['months', 'year'],
+				clsName: 'months',
+				e: 'changeYear',
+				navStep: 1
+			},
+			{
+				names: ['years', 'decade'],
+				clsName: 'years',
+				e: 'changeDecade',
+				navStep: 10
+			},
+			{
+				names: ['decades', 'century'],
+				clsName: 'decades',
+				e: 'changeCentury',
+				navStep: 100
+			},
+			{
+				names: ['centuries', 'millennium'],
+				clsName: 'centuries',
+				e: 'changeMillennium',
+				navStep: 1000
+			}
+		],
+		validParts: /dd?|DD?|mm?|MM?|yy(?:yy)?/g,
+		nonpunctuation: /[^ -\/:-@\u5e74\u6708\u65e5\[-`{-~\t\n\r]+/g,
+		parseFormat: function(format){
+			if (typeof format.toValue === 'function' && typeof format.toDisplay === 'function')
+                return format;
+            // IE treats \0 as a string end in inputs (truncating the value),
+			// so it's a bad format delimiter, anyway
+			var separators = format.replace(this.validParts, '\0').split('\0'),
+				parts = format.match(this.validParts);
+			if (!separators || !separators.length || !parts || parts.length === 0){
+				throw new Error("Invalid date format.");
+			}
+			return {separators: separators, parts: parts};
+		},
+		parseDate: function(date, format, language, assumeNearby){
+			if (!date)
+				return undefined;
+			if (date instanceof Date)
+				return date;
+			if (typeof format === 'string')
+				format = DPGlobal.parseFormat(format);
+			if (format.toValue)
+				return format.toValue(date, format, language);
+			var fn_map = {
+					d: 'moveDay',
+					m: 'moveMonth',
+					w: 'moveWeek',
+					y: 'moveYear'
+				},
+				dateAliases = {
+					yesterday: '-1d',
+					today: '+0d',
+					tomorrow: '+1d'
+				},
+				parts, part, dir, i, fn;
+			if (date in dateAliases){
+				date = dateAliases[date];
+			}
+			if (/^[\-+]\d+[dmwy]([\s,]+[\-+]\d+[dmwy])*$/i.test(date)){
+				parts = date.match(/([\-+]\d+)([dmwy])/gi);
+				date = new Date();
+				for (i=0; i < parts.length; i++){
+					part = parts[i].match(/([\-+]\d+)([dmwy])/i);
+					dir = Number(part[1]);
+					fn = fn_map[part[2].toLowerCase()];
+					date = Datepicker.prototype[fn](date, dir);
+				}
+				return Datepicker.prototype._zero_utc_time(date);
+			}
+
+			parts = date && date.match(this.nonpunctuation) || [];
+
+			function applyNearbyYear(year, threshold){
+				if (threshold === true)
+					threshold = 10;
+
+				// if year is 2 digits or less, than the user most likely is trying to get a recent century
+				if (year < 100){
+					year += 2000;
+					// if the new year is more than threshold years in advance, use last century
+					if (year > ((new Date()).getFullYear()+threshold)){
+						year -= 100;
+					}
+				}
+
+				return year;
+			}
+
+			var parsed = {},
+				setters_order = ['yyyy', 'yy', 'M', 'MM', 'm', 'mm', 'd', 'dd'],
+				setters_map = {
+					yyyy: function(d,v){
+						return d.setUTCFullYear(assumeNearby ? applyNearbyYear(v, assumeNearby) : v);
+					},
+					m: function(d,v){
+						if (isNaN(d))
+							return d;
+						v -= 1;
+						while (v < 0) v += 12;
+						v %= 12;
+						d.setUTCMonth(v);
+						while (d.getUTCMonth() !== v)
+							d.setUTCDate(d.getUTCDate()-1);
+						return d;
+					},
+					d: function(d,v){
+						return d.setUTCDate(v);
+					}
+				},
+				val, filtered;
+			setters_map['yy'] = setters_map['yyyy'];
+			setters_map['M'] = setters_map['MM'] = setters_map['mm'] = setters_map['m'];
+			setters_map['dd'] = setters_map['d'];
+			date = UTCToday();
+			var fparts = format.parts.slice();
+			// Remove noop parts
+			if (parts.length !== fparts.length){
+				fparts = $(fparts).filter(function(i,p){
+					return $.inArray(p, setters_order) !== -1;
+				}).toArray();
+			}
+			// Process remainder
+			function match_part(){
+				var m = this.slice(0, parts[i].length),
+					p = parts[i].slice(0, m.length);
+				return m.toLowerCase() === p.toLowerCase();
+			}
+			if (parts.length === fparts.length){
+				var cnt;
+				for (i=0, cnt = fparts.length; i < cnt; i++){
+					val = parseInt(parts[i], 10);
+					part = fparts[i];
+					if (isNaN(val)){
+						switch (part){
+							case 'MM':
+								filtered = $(dates[language].months).filter(match_part);
+								val = $.inArray(filtered[0], dates[language].months) + 1;
+								break;
+							case 'M':
+								filtered = $(dates[language].monthsShort).filter(match_part);
+								val = $.inArray(filtered[0], dates[language].monthsShort) + 1;
+								break;
+						}
+					}
+					parsed[part] = val;
+				}
+				var _date, s;
+				for (i=0; i < setters_order.length; i++){
+					s = setters_order[i];
+					if (s in parsed && !isNaN(parsed[s])){
+						_date = new Date(date);
+						setters_map[s](_date, parsed[s]);
+						if (!isNaN(_date))
+							date = _date;
+					}
+				}
+			}
+			return date;
+		},
+		formatDate: function(date, format, language){
+			if (!date)
+				return '';
+			if (typeof format === 'string')
+				format = DPGlobal.parseFormat(format);
+			if (format.toDisplay)
+                return format.toDisplay(date, format, language);
+            var val = {
+				d: date.getUTCDate(),
+				D: dates[language].daysShort[date.getUTCDay()],
+				DD: dates[language].days[date.getUTCDay()],
+				m: date.getUTCMonth() + 1,
+				M: dates[language].monthsShort[date.getUTCMonth()],
+				MM: dates[language].months[date.getUTCMonth()],
+				yy: date.getUTCFullYear().toString().substring(2),
+				yyyy: date.getUTCFullYear()
+			};
+			val.dd = (val.d < 10 ? '0' : '') + val.d;
+			val.mm = (val.m < 10 ? '0' : '') + val.m;
+			date = [];
+			var seps = $.extend([], format.separators);
+			for (var i=0, cnt = format.parts.length; i <= cnt; i++){
+				if (seps.length)
+					date.push(seps.shift());
+				date.push(val[format.parts[i]]);
+			}
+			return date.join('');
+		},
+		headTemplate: '<thead>'+
+			              '<tr>'+
+			                '<th colspan="7" class="datepicker-title"></th>'+
+			              '</tr>'+
+							'<tr>'+
+								'<th class="prev">'+defaults.templates.leftArrow+'</th>'+
+								'<th colspan="5" class="datepicker-switch"></th>'+
+								'<th class="next">'+defaults.templates.rightArrow+'</th>'+
+							'</tr>'+
+						'</thead>',
+		contTemplate: '<tbody><tr><td colspan="7"></td></tr></tbody>',
+		footTemplate: '<tfoot>'+
+							'<tr>'+
+								'<th colspan="7" class="today"></th>'+
+							'</tr>'+
+							'<tr>'+
+								'<th colspan="7" class="clear"></th>'+
+							'</tr>'+
+						'</tfoot>'
+	};
+	DPGlobal.template = '<div class="datepicker">'+
+							'<div class="datepicker-days">'+
+								'<table class="table-condensed">'+
+									DPGlobal.headTemplate+
+									'<tbody></tbody>'+
+									DPGlobal.footTemplate+
+								'</table>'+
+							'</div>'+
+							'<div class="datepicker-months">'+
+								'<table class="table-condensed">'+
+									DPGlobal.headTemplate+
+									DPGlobal.contTemplate+
+									DPGlobal.footTemplate+
+								'</table>'+
+							'</div>'+
+							'<div class="datepicker-years">'+
+								'<table class="table-condensed">'+
+									DPGlobal.headTemplate+
+									DPGlobal.contTemplate+
+									DPGlobal.footTemplate+
+								'</table>'+
+							'</div>'+
+							'<div class="datepicker-decades">'+
+								'<table class="table-condensed">'+
+									DPGlobal.headTemplate+
+									DPGlobal.contTemplate+
+									DPGlobal.footTemplate+
+								'</table>'+
+							'</div>'+
+							'<div class="datepicker-centuries">'+
+								'<table class="table-condensed">'+
+									DPGlobal.headTemplate+
+									DPGlobal.contTemplate+
+									DPGlobal.footTemplate+
+								'</table>'+
+							'</div>'+
+						'</div>';
+
+	$.fn.datepicker.DPGlobal = DPGlobal;
+
+
+	/* DATEPICKER NO CONFLICT
+	* =================== */
+
+	$.fn.datepicker.noConflict = function(){
+		$.fn.datepicker = old;
+		return this;
+	};
+
+	/* DATEPICKER VERSION
+	 * =================== */
+	$.fn.datepicker.version = '1.7.1';
+
+	$.fn.datepicker.deprecated = function(msg){
+		var console = window.console;
+		if (console && console.warn) {
+			console.warn('DEPRECATED: ' + msg);
+		}
+	};
+
+
+	/* DATEPICKER DATA-API
+	* ================== */
+
+	$(document).on(
+		'focus.datepicker.data-api click.datepicker.data-api',
+		'[data-provide="datepicker"]',
+		function(e){
+			var $this = $(this);
+			if ($this.data('datepicker'))
+				return;
+			e.preventDefault();
+			// component click requires us to explicitly show it
+			datepickerPlugin.call($this, 'show');
+		}
+	);
+	$(function(){
+		datepickerPlugin.call($('[data-provide="datepicker-inline"]'));
+	});
+
+}));
+
+!function(a){a.fn.datepicker.dates["zh-CN"]={days:["星期日","星期一","星期二","星期三","星期四","星期五","星期六"],daysShort:["周日","周一","周二","周三","周四","周五","周六"],daysMin:["日","一","二","三","四","五","六"],months:["一月","二月","三月","四月","五月","六月","七月","八月","九月","十月","十一月","十二月"],monthsShort:["1月","2月","3月","4月","5月","6月","7月","8月","9月","10月","11月","12月"],today:"今日",clear:"清除",format:"yyyy年mm月dd日",titleFormat:"yyyy年mm月",weekStart:1}}(jQuery);
+/*! Jcrop.js v2.0.4 - build: 20151117
+ *  @copyright 2008-2015 Tapmodo Interactive LLC
+ *  @license Free software under MIT License
+ *  @website http://jcrop.org/
+ **/
+(function($){
+  'use strict';
+
+  // Jcrop constructor
+  var Jcrop = function(element,opt){
+    var _ua = navigator.userAgent.toLowerCase();
+
+    this.opt = $.extend({},Jcrop.defaults,opt || {});
+
+    this.container = $(element);
+
+    this.opt.is_msie = /msie/.test(_ua);
+    this.opt.is_ie_lt9 = /msie [1-8]\./.test(_ua);
+
+    this.container.addClass(this.opt.css_container);
+
+    this.ui = {};
+    this.state = null;
+    this.ui.multi = [];
+    this.ui.selection = null;
+    this.filter = {};
+
+    this.init();
+    this.setOptions(opt);
+    this.applySizeConstraints();
+    this.container.trigger('cropinit',this);
+      
+    // IE<9 doesn't work if mouse events are attached to window
+    if (this.opt.is_ie_lt9)
+      this.opt.dragEventTarget = document.body;
+  };
+
+
+  // Jcrop static functions
+  $.extend(Jcrop,{
+    component: { },
+    filter: { },
+    stage: { },
+    registerComponent: function(name,component){
+      Jcrop.component[name] = component;
+    },
+    registerFilter: function(name,filter){
+      Jcrop.filter[name] = filter;
+    },
+    registerStageType: function(name,stage){
+      Jcrop.stage[name] = stage;
+    },
+    // attach: function(element,opt){{{
+    attach: function(element,opt){
+      var obj = new $.Jcrop(element,opt);
+      return obj;
+    },
+    // }}}
+    // imgCopy: function(imgel){{{
+    imgCopy: function(imgel){
+      var img = new Image;
+      img.src = imgel.src;
+      return img;
+    },
+    // }}}
+    // imageClone: function(imgel){{{
+    imageClone: function(imgel){
+      return $.Jcrop.supportsCanvas?
+        Jcrop.canvasClone(imgel):
+        Jcrop.imgCopy(imgel);
+    },
+    // }}}
+    // canvasClone: function(imgel){{{
+    canvasClone: function(imgel){
+      var canvas = document.createElement('canvas'),
+          ctx = canvas.getContext('2d');
+
+      $(canvas).width(imgel.width).height(imgel.height),
+      canvas.width = imgel.naturalWidth;
+      canvas.height = imgel.naturalHeight;
+      ctx.drawImage(imgel,0,0,imgel.naturalWidth,imgel.naturalHeight);
+      return canvas;
+    },
+    // }}}
+    // propagate: function(plist,config,obj){{{
+    propagate: function(plist,config,obj){
+      for(var i=0,l=plist.length;i<l;i++)
+        if (config.hasOwnProperty(plist[i]))
+          obj[plist[i]] = config[plist[i]];
+    },
+    // }}}
+    // getLargestBox: function(ratio,w,h){{{
+    getLargestBox: function(ratio,w,h){
+      if ((w/h) > ratio)
+        return [ h * ratio, h ];
+          else return [ w, w / ratio ];
+    },
+    // }}}
+    // stageConstructor: function(el,options,callback){{{
+    stageConstructor: function(el,options,callback){
+
+      // Get a priority-ordered list of available stages
+      var stages = [];
+      $.each(Jcrop.stage,function(i,e){
+        stages.push(e);
+      });
+      stages.sort(function(a,b){ return a.priority - b.priority; });
+
+      // Find the first one that supports this element
+      for(var i=0,l=stages.length;i<l;i++){
+        if (stages[i].isSupported(el,options)){
+          stages[i].create(el,options,function(obj,opt){
+            if (typeof callback == 'function') callback(obj,opt);
+          });
+          break;
+        }
+      }
+    },
+    // }}}
+    // supportsColorFade: function(){{{
+    supportsColorFade: function(){
+      return $.fx.step.hasOwnProperty('backgroundColor');
+    },
+    // }}}
+    // wrapFromXywh: function(xywh){{{
+    wrapFromXywh: function(xywh){
+      var b = { x: xywh[0], y: xywh[1], w: xywh[2], h: xywh[3] };
+      b.x2 = b.x + b.w;
+      b.y2 = b.y + b.h;
+      return b;
+    }
+    // }}}
+  });
+
+var AbstractStage = function(){
+};
+
+$.extend(AbstractStage,{
+  isSupported: function(el,o){
+    // @todo: should actually check if it's an HTML element
+    return true;
+  },
+  // A higher priority means less desirable
+  // AbstractStage is the last one we want to use
+  priority: 100,
+  create: function(el,options,callback){
+    var obj = new AbstractStage;
+    obj.element = el;
+    callback.call(this,obj,options);
+  },
+  prototype: {
+    attach: function(core){
+      this.init(core);
+      core.ui.stage = this;
+    },
+    triggerEvent: function(ev){
+      $(this.element).trigger(ev);
+      return this;
+    },
+    getElement: function(){
+      return this.element;
+    }
+  }
+});
+Jcrop.registerStageType('Block',AbstractStage);
+
+
+var ImageStage = function(){
+};
+
+ImageStage.prototype = new AbstractStage();
+
+$.extend(ImageStage,{
+  isSupported: function(el,o){
+    if (el.tagName == 'IMG') return true;
+  },
+  priority: 90,
+  create: function(el,options,callback){
+    $.Jcrop.component.ImageLoader.attach(el,function(w,h){
+      var obj = new ImageStage;
+      obj.element = $(el).wrap('<div />').parent();
+
+      obj.element.width(w).height(h);
+      obj.imgsrc = el;
+
+      if (typeof callback == 'function')
+        callback.call(this,obj,options);
+    });
+  }
+});
+Jcrop.registerStageType('Image',ImageStage);
+
+
+var CanvasStage = function(){
+  this.angle = 0;
+  this.scale = 1;
+  this.scaleMin = 0.2;
+  this.scaleMax = 1.25;
+  this.offset = [0,0];
+};
+
+CanvasStage.prototype = new ImageStage();
+
+$.extend(CanvasStage,{
+  isSupported: function(el,o){
+    if ($.Jcrop.supportsCanvas && (el.tagName == 'IMG')) return true;
+  },
+  priority: 60,
+  create: function(el,options,callback){
+    var $el = $(el);
+    var opt = $.extend({},options);
+    $.Jcrop.component.ImageLoader.attach(el,function(w,h){
+      var obj = new CanvasStage;
+      $el.hide();
+      obj.createCanvas(el,w,h);
+      $el.before(obj.element);
+      obj.imgsrc = el;
+      opt.imgsrc = el;
+
+      if (typeof callback == 'function'){
+        callback(obj,opt);
+        obj.redraw();
+      }
+    });
+  }
+});
+
+$.extend(CanvasStage.prototype,{
+  init: function(core){
+    this.core = core;
+  },
+  // setOffset: function(x,y) {{{
+  setOffset: function(x,y) {
+    this.offset = [x,y];
+    return this;
+  },
+  // }}}
+  // setAngle: function(v) {{{
+  setAngle: function(v) {
+    this.angle = v;
+    return this;
+  },
+  // }}}
+  // setScale: function(v) {{{
+  setScale: function(v) {
+    this.scale = this.boundScale(v);
+    return this;
+  },
+  // }}}
+  boundScale: function(v){
+    if (v<this.scaleMin) v = this.scaleMin;
+    else if (v>this.scaleMax) v = this.scaleMax;
+    return v;
+  },
+  createCanvas: function(img,w,h){
+    this.width = w;
+    this.height = h;
+    this.canvas = document.createElement('canvas');
+    this.canvas.width = w;
+    this.canvas.height = h;
+    this.$canvas = $(this.canvas).width('100%').height('100%');
+    this.context = this.canvas.getContext('2d');
+    this.fillstyle = "rgb(0,0,0)";
+    this.element = this.$canvas.wrap('<div />').parent().width(w).height(h);
+  },
+  triggerEvent: function(ev){
+    this.$canvas.trigger(ev);
+    return this;
+  },
+  // clear: function() {{{
+  clear: function() {
+    this.context.fillStyle = this.fillstyle;
+    this.context.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    return this;
+  },
+  // }}}
+  // redraw: function() {{{
+  redraw: function() {
+    // Save the current context
+    this.context.save();
+    this.clear();
+
+    // Translate to the center point of our image
+    this.context.translate(parseInt(this.width * 0.5), parseInt(this.height * 0.5));
+    // Perform the rotation and scaling
+    this.context.translate(this.offset[0]/this.core.opt.xscale,this.offset[1]/this.core.opt.yscale);
+    this.context.rotate(this.angle * (Math.PI/180));
+    this.context.scale(this.scale,this.scale);
+    // Translate back to the top left of our image
+    this.context.translate(-parseInt(this.width * 0.5), -parseInt(this.height * 0.5));
+    // Finally we draw the image
+    this.context.drawImage(this.imgsrc,0,0,this.width,this.height);
+
+    // And restore the updated context
+    this.context.restore();
+    this.$canvas.trigger('cropredraw');
+    return this;
+  },
+  // }}}
+  // setFillStyle: function(v) {{{
+  setFillStyle: function(v) {
+    this.fillstyle = v;
+    return this;
+  }
+  // }}}
+});
+
+Jcrop.registerStageType('Canvas',CanvasStage);
+
+
+  /**
+   *  BackoffFilter
+   *  move out-of-bounds selection into allowed position at same size
+   */
+  var BackoffFilter = function(){
+    this.minw = 40;
+    this.minh = 40;
+    this.maxw = 0;
+    this.maxh = 0;
+    this.core = null;
+  };
+  $.extend(BackoffFilter.prototype,{
+    tag: 'backoff',
+    priority: 22,
+    filter: function(b){
+      var r = this.bound;
+
+      if (b.x < r.minx) { b.x = r.minx; b.x2 = b.w + b.x; }
+      if (b.y < r.miny) { b.y = r.miny; b.y2 = b.h + b.y; }
+      if (b.x2 > r.maxx) { b.x2 = r.maxx; b.x = b.x2 - b.w; }
+      if (b.y2 > r.maxy) { b.y2 = r.maxy; b.y = b.y2 - b.h; }
+
+      return b;
+    },
+    refresh: function(sel){
+      this.elw = sel.core.container.width();
+      this.elh = sel.core.container.height();
+      this.bound = {
+        minx: 0 + sel.edge.w,
+        miny: 0 + sel.edge.n,
+        maxx: this.elw + sel.edge.e,
+        maxy: this.elh + sel.edge.s
+      };
+    }
+  });
+  Jcrop.registerFilter('backoff',BackoffFilter);
+
+  /**
+   *  ConstrainFilter
+   *  a filter to constrain crop selection to bounding element
+   */
+  var ConstrainFilter = function(){
+    this.core = null;
+  };
+  $.extend(ConstrainFilter.prototype,{
+    tag: 'constrain',
+    priority: 5,
+    filter: function(b,ord){
+      if (ord == 'move') {
+        if (b.x < this.minx) { b.x = this.minx; b.x2 = b.w + b.x; }
+        if (b.y < this.miny) { b.y = this.miny; b.y2 = b.h + b.y; }
+        if (b.x2 > this.maxx) { b.x2 = this.maxx; b.x = b.x2 - b.w; }
+        if (b.y2 > this.maxy) { b.y2 = this.maxy; b.y = b.y2 - b.h; }
+      } else {
+        if (b.x < this.minx) { b.x = this.minx; }
+        if (b.y < this.miny) { b.y = this.miny; }
+        if (b.x2 > this.maxx) { b.x2 = this.maxx; }
+        if (b.y2 > this.maxy) { b.y2 = this.maxy; }
+      }
+      b.w = b.x2 - b.x;
+      b.h = b.y2 - b.y;
+      return b;
+    },
+    refresh: function(sel){
+      this.elw = sel.core.container.width();
+      this.elh = sel.core.container.height();
+      this.minx = 0 + sel.edge.w;
+      this.miny = 0 + sel.edge.n;
+      this.maxx = this.elw + sel.edge.e;
+      this.maxy = this.elh + sel.edge.s;
+    }
+  });
+  Jcrop.registerFilter('constrain',ConstrainFilter);
+
+  /**
+   *  ExtentFilter
+   *  a filter to implement minimum or maximum size
+   */
+  var ExtentFilter = function(){
+    this.core = null;
+  };
+  $.extend(ExtentFilter.prototype,{
+    tag: 'extent',
+    priority: 12,
+    offsetFromCorner: function(corner,box,b){
+      var w = box[0], h = box[1];
+      switch(corner){
+        case 'bl': return [ b.x2 - w, b.y, w, h ];
+        case 'tl': return [ b.x2 - w , b.y2 - h, w, h ];
+        case 'br': return [ b.x, b.y, w, h ];
+        case 'tr': return [ b.x, b.y2 - h, w, h ];
+      }
+    },
+    getQuadrant: function(s){
+      var relx = s.opposite[0]-s.offsetx
+      var rely = s.opposite[1]-s.offsety;
+
+      if ((relx < 0) && (rely < 0)) return 'br';
+        else if ((relx >= 0) && (rely >= 0)) return 'tl';
+        else if ((relx < 0) && (rely >= 0)) return 'tr';
+        return 'bl';
+    },
+    filter: function(b,ord,sel){
+
+      if (ord == 'move') return b;
+
+      var w = b.w, h = b.h, st = sel.state, r = this.limits;
+      var quad = st? this.getQuadrant(st): 'br';
+
+      if (r.minw && (w < r.minw)) w = r.minw;
+      if (r.minh && (h < r.minh)) h = r.minh;
+      if (r.maxw && (w > r.maxw)) w = r.maxw;
+      if (r.maxh && (h > r.maxh)) h = r.maxh;
+
+      if ((w == b.w) && (h == b.h)) return b;
+
+      return Jcrop.wrapFromXywh(this.offsetFromCorner(quad,[w,h],b));
+    },
+    refresh: function(sel){
+      this.elw = sel.core.container.width();
+      this.elh = sel.core.container.height();
+
+      this.limits = {
+        minw: sel.minSize[0],
+        minh: sel.minSize[1],
+        maxw: sel.maxSize[0],
+        maxh: sel.maxSize[1]
+      };
+    }
+  });
+  Jcrop.registerFilter('extent',ExtentFilter);
+
+
+  /**
+   *  GridFilter
+   *  a rudimentary grid effect
+   */
+  var GridFilter = function(){
+    this.stepx = 1;
+    this.stepy = 1;
+    this.core = null;
+  };
+  $.extend(GridFilter.prototype,{
+    tag: 'grid',
+    priority: 19,
+    filter: function(b){
+      
+      var n = {
+        x: Math.round(b.x / this.stepx) * this.stepx,
+        y: Math.round(b.y / this.stepy) * this.stepy,
+        x2: Math.round(b.x2 / this.stepx) * this.stepx,
+        y2: Math.round(b.y2 / this.stepy) * this.stepy
+      };
+      
+      n.w = n.x2 - n.x;
+      n.h = n.y2 - n.y;
+
+      return n;
+    }
+  });
+  Jcrop.registerFilter('grid',GridFilter);
+
+
+  /**
+   *  RatioFilter
+   *  implements aspectRatio locking
+   */
+  var RatioFilter = function(){
+    this.ratio = 0;
+    this.core = null;
+  };
+  $.extend(RatioFilter.prototype,{
+    tag: 'ratio',
+    priority: 15,
+    offsetFromCorner: function(corner,box,b){
+      var w = box[0], h = box[1];
+      switch(corner){
+        case 'bl': return [ b.x2 - w, b.y, w, h ];
+        case 'tl': return [ b.x2 - w , b.y2 - h, w, h ];
+        case 'br': return [ b.x, b.y, w, h ];
+        case 'tr': return [ b.x, b.y2 - h, w, h ];
+      }
+    },
+    getBoundRatio: function(b,quad){
+      var box = Jcrop.getLargestBox(this.ratio,b.w,b.h);
+      return Jcrop.wrapFromXywh(this.offsetFromCorner(quad,box,b));
+    },
+    getQuadrant: function(s){
+      var relx = s.opposite[0]-s.offsetx
+      var rely = s.opposite[1]-s.offsety;
+
+      if ((relx < 0) && (rely < 0)) return 'br';
+        else if ((relx >= 0) && (rely >= 0)) return 'tl';
+        else if ((relx < 0) && (rely >= 0)) return 'tr';
+        return 'bl';
+    },
+    filter: function(b,ord,sel){
+
+      if (!this.ratio) return b;
+
+      var rt = b.w / b.h;
+      var st = sel.state;
+
+      var quad = st? this.getQuadrant(st): 'br';
+      ord = ord || 'se';
+
+      if (ord == 'move') return b;
+
+      switch(ord) {
+        case 'n':
+          b.x2 = this.elw;
+          b.w = b.x2 - b.x;
+          quad = 'tr';
+          break;
+        case 's':
+          b.x2 = this.elw;
+          b.w = b.x2 - b.x;
+          quad = 'br';
+          break;
+        case 'e':
+          b.y2 = this.elh;
+          b.h = b.y2 - b.y;
+          quad = 'br';
+          break;
+        case 'w':
+          b.y2 = this.elh;
+          b.h = b.y2 - b.y;
+          quad = 'bl';
+          break;
+      }
+
+      return this.getBoundRatio(b,quad);
+    },
+    refresh: function(sel){
+      this.ratio = sel.aspectRatio;
+      this.elw = sel.core.container.width();
+      this.elh = sel.core.container.height();
+    }
+  });
+  Jcrop.registerFilter('ratio',RatioFilter);
+
+
+  /**
+   *  RoundFilter
+   *  rounds coordinate values to integers
+   */
+  var RoundFilter = function(){
+    this.core = null;
+  };
+  $.extend(RoundFilter.prototype,{
+    tag: 'round',
+    priority: 90,
+    filter: function(b){
+      
+      var n = {
+        x: Math.round(b.x),
+        y: Math.round(b.y),
+        x2: Math.round(b.x2),
+        y2: Math.round(b.y2)
+      };
+      
+      n.w = n.x2 - n.x;
+      n.h = n.y2 - n.y;
+
+      return n;
+    }
+  });
+  Jcrop.registerFilter('round',RoundFilter);
+
+
+  /**
+   *  ShadeFilter
+   *  A filter that implements div-based shading on any element
+   *
+   *  The shading you see is actually four semi-opaque divs
+   *  positioned inside the container, around the selection
+   */
+  var ShadeFilter = function(opacity,color){
+    this.color = color || 'black';
+    this.opacity = opacity || 0.5;
+    this.core = null;
+    this.shades = {};
+  };
+  $.extend(ShadeFilter.prototype,{
+    tag: 'shader',
+    fade: true,
+    fadeEasing: 'swing',
+    fadeSpeed: 320,
+    priority: 95,
+    init: function(){
+      var t = this;
+
+      if (!t.attached) {
+        t.visible = false;
+
+        t.container = $('<div />').addClass(t.core.opt.css_shades)
+          .prependTo(this.core.container).hide();
+
+        t.elh = this.core.container.height();
+        t.elw = this.core.container.width();
+
+        t.shades = {
+          top: t.createShade(),
+          right: t.createShade(),
+          left: t.createShade(),
+          bottom: t.createShade()
+        };
+
+        t.attached = true;
+      }
+    },
+    destroy: function(){
+      this.container.remove();
+    },
+    setColor: function(color,instant){
+      var t = this;
+
+      if (color == t.color) return t;
+
+      this.color = color;
+      var colorfade = Jcrop.supportsColorFade();
+      $.each(t.shades,function(u,i){
+        if (!t.fade || instant || !colorfade) i.css('backgroundColor',color);
+          else i.animate({backgroundColor:color},{queue:false,duration:t.fadeSpeed,easing:t.fadeEasing});
+      });
+      return t;
+    },
+    setOpacity: function(opacity,instant){
+      var t = this;
+
+      if (opacity == t.opacity) return t;
+
+      t.opacity = opacity;
+      $.each(t.shades,function(u,i){
+        if (!t.fade || instant) i.css({opacity:opacity});
+          else i.animate({opacity:opacity},{queue:false,duration:t.fadeSpeed,easing:t.fadeEasing});
+      });
+      return t;
+    },
+    createShade: function(){
+      return $('<div />').css({
+        position: 'absolute',
+        backgroundColor: this.color,
+        opacity: this.opacity
+      }).appendTo(this.container);
+    },
+    refresh: function(sel){
+      var m = this.core, s = this.shades;
+
+      this.setColor(sel.bgColor?sel.bgColor:this.core.opt.bgColor);
+      this.setOpacity(sel.bgOpacity?sel.bgOpacity:this.core.opt.bgOpacity);
+        
+      this.elh = m.container.height();
+      this.elw = m.container.width();
+      s.right.css('height',this.elh+'px');
+      s.left.css('height',this.elh+'px');
+    },
+    filter: function(b,ord,sel){
+
+      if (!sel.active) return b;
+
+      var t = this,
+        s = t.shades;
+      
+      s.top.css({
+        left: Math.round(b.x)+'px',
+        width: Math.round(b.w)+'px',
+        height: Math.round(b.y)+'px'
+      });
+      s.bottom.css({
+        top: Math.round(b.y2)+'px',
+        left: Math.round(b.x)+'px',
+        width: Math.round(b.w)+'px',
+        height: (t.elh-Math.round(b.y2))+'px'
+      });
+      s.right.css({
+        left: Math.round(b.x2)+'px',
+        width: (t.elw-Math.round(b.x2))+'px'
+      });
+      s.left.css({
+        width: Math.round(b.x)+'px'
+      });
+
+      if (!t.visible) {
+        t.container.show();
+        t.visible = true;
+      }
+
+      return b;
+    }
+  });
+  Jcrop.registerFilter('shader',ShadeFilter);
+  
+
+  /**
+   *  CanvasAnimator
+   *  manages smooth cropping animation
+   *
+   *  This object is called internally to manage animation.
+   *  An in-memory div is animated and a progress callback
+   *  is used to update the selection coordinates of the
+   *  visible selection in realtime.
+   */
+  var CanvasAnimator = function(stage){
+    this.stage = stage;
+    this.core = stage.core;
+    this.cloneStagePosition();
+  };
+
+  CanvasAnimator.prototype = {
+
+    cloneStagePosition: function(){
+      var s = this.stage;
+      this.angle = s.angle;
+      this.scale = s.scale;
+      this.offset = s.offset;
+    },
+
+    getElement: function(){
+      var s = this.stage;
+
+      return $('<div />')
+        .css({
+          position: 'absolute',
+          top: s.offset[0]+'px',
+          left: s.offset[1]+'px',
+          width: s.angle+'px',
+          height: s.scale+'px'
+        });
+    },
+
+    animate: function(cb){
+      var t = this;
+
+      this.scale = this.stage.boundScale(this.scale);
+      t.stage.triggerEvent('croprotstart');
+
+      t.getElement().animate({
+        top: t.offset[0]+'px',
+        left: t.offset[1]+'px',
+        width: t.angle+'px',
+        height: t.scale+'px'
+      },{
+        easing: t.core.opt.animEasing,
+        duration: t.core.opt.animDuration,
+        complete: function(){
+          t.stage.triggerEvent('croprotend');
+          (typeof cb == 'function') && cb.call(this);
+        },
+        progress: function(anim){
+          var props = {}, i, tw = anim.tweens;
+
+          for(i=0;i<tw.length;i++){
+            props[tw[i].prop] = tw[i].now; }
+
+          t.stage.setAngle(props.width)
+            .setScale(props.height)
+            .setOffset(props.top,props.left)
+            .redraw();
+        }
+      });
+    }
+
+  };
+  Jcrop.stage.Canvas.prototype.getAnimator = function(){
+    return new CanvasAnimator(this);
+  };
+  Jcrop.registerComponent('CanvasAnimator',CanvasAnimator);
+
+
+  /**
+   *  CropAnimator
+   *  manages smooth cropping animation
+   *
+   *  This object is called internally to manage animation.
+   *  An in-memory div is animated and a progress callback
+   *  is used to update the selection coordinates of the
+   *  visible selection in realtime.
+   */
+  // var CropAnimator = function(selection){{{
+  var CropAnimator = function(selection){
+    this.selection = selection;
+    this.core = selection.core;
+  };
+  // }}}
+
+  CropAnimator.prototype = {
+
+    getElement: function(){
+      var b = this.selection.get();
+
+      return $('<div />')
+        .css({
+          position: 'absolute',
+          top: b.y+'px',
+          left: b.x+'px',
+          width: b.w+'px',
+          height: b.h+'px'
+        });
+    },
+
+    animate: function(x,y,w,h,cb){
+      var t = this;
+
+      t.selection.allowResize(false);
+
+      t.getElement().animate({
+        top: y+'px',
+        left: x+'px',
+        width: w+'px',
+        height: h+'px'
+      },{
+        easing: t.core.opt.animEasing,
+        duration: t.core.opt.animDuration,
+        complete: function(){
+          t.selection.allowResize(true);
+          cb && cb.call(this);
+        },
+        progress: function(anim){
+          var props = {}, i, tw = anim.tweens;
+
+          for(i=0;i<tw.length;i++){
+            props[tw[i].prop] = tw[i].now; }
+
+          var b = {
+            x: parseInt(props.left),
+            y: parseInt(props.top),
+            w: parseInt(props.width),
+            h: parseInt(props.height)
+          };
+
+          b.x2 = b.x + b.w;
+          b.y2 = b.y + b.h;
+
+          t.selection.updateRaw(b,'se');
+        }
+      });
+    }
+
+  };
+  Jcrop.registerComponent('Animator',CropAnimator);
+
+
+  /**
+   *  DragState
+   *  an object that handles dragging events
+   *
+   *  This object is used by the built-in selection object to
+   *  track a dragging operation on a selection
+   */
+  // var DragState = function(e,selection,ord){{{
+  var DragState = function(e,selection,ord){
+    var t = this;
+
+    t.x = e.pageX;
+    t.y = e.pageY;
+
+    t.selection = selection;
+    t.eventTarget = selection.core.opt.dragEventTarget;
+    t.orig = selection.get();
+
+    selection.callFilterFunction('refresh');
+
+    var p = selection.core.container.position();
+    t.elx = p.left;
+    t.ely = p.top;
+
+    t.offsetx = 0;
+    t.offsety = 0;
+    t.ord = ord;
+    t.opposite = t.getOppositeCornerOffset();
+
+    t.initEvents(e);
+
+  };
+  // }}}
+
+  DragState.prototype = {
+    // getOppositeCornerOffset: function(){{{
+    // Calculate relative offset of locked corner
+    getOppositeCornerOffset: function(){
+
+      var o = this.orig;
+      var relx = this.x - this.elx - o.x;
+      var rely = this.y - this.ely - o.y;
+
+      switch(this.ord){
+        case 'nw':
+        case 'w':
+          return [ o.w - relx, o.h - rely ];
+          return [ o.x + o.w, o.y + o.h ];
+
+        case 'sw':
+          return [ o.w - relx, -rely ];
+          return [ o.x + o.w, o.y ];
+
+        case 'se':
+        case 's':
+        case 'e':
+          return [ -relx, -rely ];
+          return [ o.x, o.y ];
+
+        case 'ne':
+        case 'n':
+          return [ -relx, o.h - rely ];
+          return [ o.w, o.y + o.h ];
+      }
+
+      return [ null, null ];
+    },
+    // }}}
+    // initEvents: function(e){{{
+    initEvents: function(e){
+      $(this.eventTarget)
+        .on('mousemove.jcrop',this.createDragHandler())
+        .on('mouseup.jcrop',this.createStopHandler());
+    },
+    // }}}
+    // dragEvent: function(e){{{
+    dragEvent: function(e){
+      this.offsetx = e.pageX - this.x;
+      this.offsety = e.pageY - this.y;
+      this.selection.updateRaw(this.getBox(),this.ord);
+    },
+    // }}}
+    // endDragEvent: function(e){{{
+    endDragEvent: function(e){
+      var sel = this.selection;
+      sel.core.container.removeClass('jcrop-dragging');
+      sel.element.trigger('cropend',[sel,sel.core.unscale(sel.get())]);
+      sel.focus();
+    },
+    // }}}
+    // createStopHandler: function(){{{
+    createStopHandler: function(){
+      var t = this;
+      return function(e){
+        $(t.eventTarget).off('.jcrop');
+        t.endDragEvent(e);
+        return false;
+      };
+    },
+    // }}}
+    // createDragHandler: function(){{{
+    createDragHandler: function(){
+      var t = this;
+      return function(e){
+        t.dragEvent(e);
+        return false;
+      };
+    },
+    // }}}
+    //update: function(x,y){{{
+    update: function(x,y){
+      var t = this;
+      t.offsetx = x - t.x;
+      t.offsety = y - t.y;
+    },
+    //}}}
+    //resultWrap: function(d){{{
+    resultWrap: function(d){
+      var b = {
+          x: Math.min(d[0],d[2]),
+          y: Math.min(d[1],d[3]),
+          x2: Math.max(d[0],d[2]),
+          y2: Math.max(d[1],d[3])
+        };
+
+      b.w = b.x2 - b.x;
+      b.h = b.y2 - b.y;
+
+      return b;
+    },
+    //}}}
+    //getBox: function(){{{
+    getBox: function(){
+      var t = this;
+      var o = t.orig;
+      var _c = { x2: o.x + o.w, y2: o.y + o.h };
+      switch(t.ord){
+        case 'n': return t.resultWrap([ o.x, t.offsety + o.y, _c.x2, _c.y2 ]);
+        case 's': return t.resultWrap([ o.x, o.y, _c.x2, t.offsety + _c.y2 ]);
+        case 'e': return t.resultWrap([ o.x, o.y, t.offsetx + _c.x2, _c.y2 ]);
+        case 'w': return t.resultWrap([ o.x + t.offsetx, o.y, _c.x2, _c.y2 ]);
+        case 'sw': return t.resultWrap([ t.offsetx + o.x, o.y, _c.x2, t.offsety + _c.y2 ]);
+        case 'se': return t.resultWrap([ o.x, o.y, t.offsetx + _c.x2, t.offsety + _c.y2 ]);
+        case 'ne': return t.resultWrap([ o.x, t.offsety + o.y, t.offsetx + _c.x2, _c.y2 ]);
+        case 'nw': return t.resultWrap([ t.offsetx + o.x, t.offsety + o.y, _c.x2, _c.y2 ]);
+        case 'move':
+          _c.nx = o.x + t.offsetx;
+          _c.ny = o.y + t.offsety;
+          return t.resultWrap([ _c.nx, _c.ny, _c.nx + o.w, _c.ny + o.h ]);
+      }
+    }
+    //}}}
+  };
+  Jcrop.registerComponent('DragState',DragState);
+
+
+  /**
+   *  EventManager
+   *  provides internal event support
+   */
+  var EventManager = function(core){
+    this.core = core;
+  };
+  EventManager.prototype = {
+      on: function(n,cb){ $(this).on(n,cb); },
+      off: function(n){ $(this).off(n); },
+      trigger: function(n){ $(this).trigger(n); }
+  };
+  Jcrop.registerComponent('EventManager',EventManager);
+
+
+  /**
+   * Image Loader
+   * Reliably pre-loads images
+   */
+  // var ImageLoader = function(src,element,cb){{{
+  var ImageLoader = function(src,element,cb){
+    this.src = src;
+    if (!element) element = new Image;
+    this.element = element;
+    this.callback = cb;
+    this.load();
+  };
+  // }}}
+
+  $.extend(ImageLoader,{
+    // attach: function(el,cb){{{
+    attach: function(el,cb){
+      return new ImageLoader(el.src,el,cb);
+    },
+    // }}}
+    // prototype: {{{
+    prototype: {
+      getDimensions: function(){
+        var el = this.element;
+
+        if (el.naturalWidth)
+          return [ el.naturalWidth, el. naturalHeight ];
+
+        if (el.width)
+          return [ el.width, el.height ];
+
+        return null;
+      },
+      fireCallback: function(){
+        this.element.onload = null;
+        if (typeof this.callback == 'function')
+          this.callback.apply(this,this.getDimensions());
+      },
+      isLoaded: function(){
+        return this.element.complete;
+      },
+      load: function(){
+        var t = this;
+        var el = t.element;
+
+        el.src = t.src;
+
+        if (t.isLoaded()) t.fireCallback();
+          else t.element.onload = function(e){
+            t.fireCallback();
+          };
+      }
+    }
+    // }}}
+  });
+  Jcrop.registerComponent('ImageLoader',ImageLoader);
+
+
+  /**
+   * JcropTouch
+   * Detects and enables mobile touch support
+   */
+  // var JcropTouch = function(core){{{
+  var JcropTouch = function(core){
+    this.core = core;
+    this.init();
+  };
+  // }}}
+
+  $.extend(JcropTouch,{
+    // support: function(){{{
+    support: function(){
+      if(('ontouchstart' in window) || window.DocumentTouch && document instanceof DocumentTouch)
+        return true;
+    },
+    // }}}
+    prototype: {
+      // init: function(){{{
+      init: function(){
+        var t = this,
+          p = $.Jcrop.component.DragState.prototype;
+
+        // A bit of an ugly hack to make sure we modify prototype
+        // only once, store a key on the prototype
+        if (!p.touch) {
+          t.initEvents();
+          t.shimDragState();
+          t.shimStageDrag();
+          p.touch = true;
+        }
+      },
+      // }}}
+      // shimDragState: function(){{{
+      shimDragState: function(){
+        var t = this;
+        $.Jcrop.component.DragState.prototype.initEvents = function(e){
+          
+          // Attach subsequent drag event handlers based on initial
+          // event type - avoids collecting "pseudo-mouse" events
+          // generated by some mobile browsers in some circumstances
+          if (e.type.substr(0,5) == 'touch') {
+
+            $(this.eventTarget)
+              .on('touchmove.jcrop.jcrop-touch',t.dragWrap(this.createDragHandler()))
+              .on('touchend.jcrop.jcrop-touch',this.createStopHandler());
+
+          }
+          
+          // For other events, use the mouse handlers that
+          // the default DragState.initEvents() method sets...
+          else {
+
+            $(this.eventTarget)
+              .on('mousemove.jcrop',this.createDragHandler())
+              .on('mouseup.jcrop',this.createStopHandler());
+
+          }
+
+        };
+      },
+      // }}}
+      // shimStageDrag: function(){{{
+      shimStageDrag: function(){
+        this.core.container
+          .addClass('jcrop-touch')
+          .on('touchstart.jcrop.jcrop-stage',this.dragWrap(this.core.ui.manager.startDragHandler()));
+      },
+      // }}}
+      // dragWrap: function(cb){{{
+      dragWrap: function(cb){
+        return function(e){
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.type.substr(0,5) == 'touch') {
+            e.pageX = e.originalEvent.changedTouches[0].pageX;
+            e.pageY = e.originalEvent.changedTouches[0].pageY;
+            return cb(e);
+          }
+          return false;
+        };
+      },
+      // }}}
+      // initEvents: function(){{{
+      initEvents: function(){
+        var t = this, c = t.core;
+
+        c.container.on(
+          'touchstart.jcrop.jcrop-touch',
+          '.'+c.opt.css_drag,
+          t.dragWrap(c.startDrag())
+        );
+      }
+      // }}}
+    }
+  });
+  Jcrop.registerComponent('Touch',JcropTouch);
+
+
+  /**
+   *  KeyWatcher
+   *  provides keyboard support
+   */
+  // var KeyWatcher = function(core){{{
+  var KeyWatcher = function(core){
+    this.core = core;
+    this.init();
+  };
+  // }}}
+  $.extend(KeyWatcher,{
+    // defaults: {{{
+    defaults: {
+      eventName: 'keydown.jcrop',
+      passthru: [ 9 ],
+      debug: false
+    },
+    // }}}
+    prototype: {
+      // init: function(){{{
+      init: function(){
+        $.extend(this,KeyWatcher.defaults);
+        this.enable();
+      },
+      // }}}
+      // disable: function(){{{
+      disable: function(){
+        this.core.container.off(this.eventName);
+      },
+      // }}}
+      // enable: function(){{{
+      enable: function(){
+        var t = this, m = t.core;
+        m.container.on(t.eventName,function(e){
+          var nudge = e.shiftKey? 16: 2;
+
+          if ($.inArray(e.keyCode,t.passthru) >= 0)
+            return true;
+
+          switch(e.keyCode){
+            case 37: m.nudge(-nudge,0); break;
+            case 38: m.nudge(0,-nudge); break;
+            case 39: m.nudge(nudge,0); break;
+            case 40: m.nudge(0,nudge); break;
+
+            case 46:
+            case 8:
+              m.requestDelete();
+              return false;
+              break;
+
+            default:
+              if (t.debug) console.log('keycode: ' + e.keyCode);
+              break;
+          }
+
+          if (!e.metaKey && !e.ctrlKey)
+            e.preventDefault();
+        });
+      }
+      // }}}
+    }
+  });
+  Jcrop.registerComponent('Keyboard',KeyWatcher);
+
+
+  /**
+   * Selection
+   * Built-in selection object
+   */
+  var Selection = function(){};
+
+  $.extend(Selection,{
+    // defaults: {{{
+    defaults: {
+      minSize: [ 8, 8 ],
+      maxSize: [ 0, 0 ],
+      aspectRatio: 0,
+      edge: { n: 0, s: 0, e: 0, w: 0 },
+      bgColor: null,
+      bgOpacity: null,
+      last: null,
+
+      state: null,
+      active: true,
+      linked: true,
+      canDelete: true,
+      canDrag: true,
+      canResize: true,
+      canSelect: true
+    },
+    // }}}
+    prototype: {
+      // init: function(core){{{
+      init: function(core){
+        this.core = core;
+        this.startup();
+        this.linked = this.core.opt.linked;
+        this.attach();
+        this.setOptions(this.core.opt);
+        core.container.trigger('cropcreate',[this]);
+      },
+      // }}}
+      // attach: function(){{{
+      attach: function(){
+        // For extending init() sequence
+      },
+      // }}}
+      // startup: function(){{{
+      startup: function(){
+        var t = this, o = t.core.opt;
+        $.extend(t,Selection.defaults);
+        t.filter = t.core.getDefaultFilters();
+
+        t.element = $('<div />').addClass(o.css_selection).data({ selection: t });
+        t.frame = $('<button />').addClass(o.css_button).data('ord','move').attr('type','button');
+        t.element.append(t.frame).appendTo(t.core.container);
+
+        // IE background/draggable hack
+        if (t.core.opt.is_msie) t.frame.css({
+          opacity: 0,
+          backgroundColor: 'white'
+        });
+
+        t.insertElements();
+
+        // Bind focus and blur events for this selection
+        t.frame.on('focus.jcrop',function(e){
+          t.core.setSelection(t);
+          t.element.trigger('cropfocus',t);
+          t.element.addClass('jcrop-focus');
+        }).on('blur.jcrop',function(e){
+          t.element.removeClass('jcrop-focus');
+          t.element.trigger('cropblur',t);
+        });
+      },
+      // }}}
+      // propagate: [{{{
+      propagate: [
+        'canDelete', 'canDrag', 'canResize', 'canSelect',
+        'minSize', 'maxSize', 'aspectRatio', 'edge'
+      ],
+      // }}}
+      // setOptions: function(opt){{{
+      setOptions: function(opt){
+        Jcrop.propagate(this.propagate,opt,this);
+        this.refresh();
+        return this;
+      },
+      // }}}
+      // refresh: function(){{{
+      refresh: function(){
+        this.allowResize();
+        this.allowDrag();
+        this.allowSelect();
+        this.callFilterFunction('refresh');
+        this.updateRaw(this.get(),'se');
+      },
+      // }}}
+      // callFilterFunction: function(f,args){{{
+      callFilterFunction: function(f,args){
+        for(var i=0;i<this.filter.length;i++)
+          if (this.filter[i][f]) this.filter[i][f](this);
+        return this;
+      },
+      // }}}
+      //addFilter: function(filter){{{
+      addFilter: function(filter){
+        filter.core = this.core;
+        if (!this.hasFilter(filter)) {
+          this.filter.push(filter);
+          this.sortFilters();
+          if (filter.init) filter.init();
+          this.refresh();
+        }
+      },
+      //}}}
+      // hasFilter: function(filter){{{
+      hasFilter: function(filter){
+        var i, f = this.filter, n = [];
+        for(i=0;i<f.length;i++) if (f[i] === filter) return true;
+      },
+      // }}}
+      // sortFilters: function(){{{
+      sortFilters: function(){
+        this.filter.sort(
+          function(x,y){ return x.priority - y.priority; }
+        );
+      },
+      // }}}
+      //clearFilters: function(){{{
+      clearFilters: function(){
+        var i, f = this.filter;
+
+        for(var i=0;i<f.length;i++)
+          if (f[i].destroy) f[i].destroy();
+
+        this.filter = [];
+      },
+      //}}}
+      // removeFiltersByTag: function(tag){{{
+      removeFilter: function(tag){
+        var i, f = this.filter, n = [];
+
+        for(var i=0;i<f.length;i++)
+          if ((f[i].tag && (f[i].tag == tag)) || (tag === f[i])){
+            if (f[i].destroy) f[i].destroy();
+          }
+          else n.push(f[i]);
+
+        this.filter = n;
+      },
+      // }}}
+      // runFilters: function(b,ord){{{
+      runFilters: function(b,ord){
+        for(var i=0;i<this.filter.length;i++)
+          b = this.filter[i].filter(b,ord,this);
+        return b;
+      },
+      // }}}
+      //endDrag: function(){{{
+      endDrag: function(){
+        if (this.state) {
+          $(document.body).off('.jcrop');
+          this.focus();
+          this.state = null;
+        }
+      },
+      //}}}
+      // startDrag: function(e,ord){{{
+      startDrag: function(e,ord){
+        var t = this;
+        var m = t.core;
+
+        ord = ord || $(e.target).data('ord');
+
+        this.focus();
+
+        if ((ord == 'move') && t.element.hasClass(t.core.opt.css_nodrag))
+          return false;
+
+        this.state = new Jcrop.component.DragState(e,this,ord);
+        return false;
+      },
+      // }}}
+      // allowSelect: function(v){{{
+      allowSelect: function(v){
+        if (v === undefined) v = this.canSelect;
+
+        if (v && this.canSelect) this.frame.attr('disabled',false);
+          else this.frame.attr('disabled','disabled');
+
+        return this;
+      },
+      // }}}
+      // allowDrag: function(v){{{
+      allowDrag: function(v){
+        var t = this, o = t.core.opt;
+        if (v == undefined) v = t.canDrag;
+
+        if (v && t.canDrag) t.element.removeClass(o.css_nodrag);
+          else t.element.addClass(o.css_nodrag);
+
+        return this;
+      },
+      // }}}
+      // allowResize: function(v){{{
+      allowResize: function(v){
+        var t = this, o = t.core.opt;
+        if (v == undefined) v = t.canResize;
+
+        if (v && t.canResize) t.element.removeClass(o.css_noresize);
+          else t.element.addClass(o.css_noresize);
+
+        return this;
+      },
+      // }}}
+      // remove: function(){{{
+      remove: function(){
+        this.element.trigger('cropremove',this);
+        this.element.remove();
+      },
+      // }}}
+      // toBack: function(){{{
+      toBack: function(){
+        this.active = false;
+        this.element.removeClass('jcrop-current jcrop-focus');
+      },
+      // }}}
+      // toFront: function(){{{
+      toFront: function(){
+        this.active = true;
+        this.element.addClass('jcrop-current');
+        this.callFilterFunction('refresh');
+        this.refresh();
+      },
+      // }}}
+      // redraw: function(b){{{
+      redraw: function(b){
+        this.moveTo(b.x,b.y);
+        this.resize(b.w,b.h);
+        this.last = b;
+        return this;
+      },
+      // }}}
+      // update: function(b,ord){{{
+      update: function(b,ord){
+        return this.updateRaw(this.core.scale(b),ord);
+      },
+      // }}}
+      // update: function(b,ord){{{
+      updateRaw: function(b,ord){
+        b = this.runFilters(b,ord);
+        this.redraw(b);
+        this.element.trigger('cropmove',[this,this.core.unscale(b)]);
+        return this;
+      },
+      // }}}
+      // animateTo: function(box,cb){{{
+      animateTo: function(box,cb){
+        var ca = new Jcrop.component.Animator(this),
+            b = this.core.scale(Jcrop.wrapFromXywh(box));
+
+        ca.animate(b.x,b.y,b.w,b.h,cb);
+      },
+      // }}}
+      // center: function(instant){{{
+      center: function(instant){
+        var b = this.get(), m = this.core;
+        var elw = m.container.width(), elh = m.container.height();
+        var box = [ (elw-b.w)/2, (elh-b.h)/2, b.w, b.h ];
+        return this[instant?'setSelect':'animateTo'](box);
+      },
+      // }}}
+      //createElement: function(type,ord){{{
+      createElement: function(type,ord){
+        return $('<div />').addClass(type+' ord-'+ord).data('ord',ord);
+      },
+      //}}}
+      //moveTo: function(x,y){{{
+      moveTo: function(x,y){
+        this.element.css({top: y+'px', left: x+'px'});
+      },
+      //}}}
+      // blur: function(){{{
+      blur: function(){
+        this.element.blur();
+        return this;
+      },
+      // }}}
+      // focus: function(){{{
+      focus: function(){
+        this.core.setSelection(this);
+        this.frame.focus();
+        return this;
+      },
+      // }}}
+      //resize: function(w,h){{{
+      resize: function(w,h){
+        this.element.css({width: w+'px', height: h+'px'});
+      },
+      //}}}
+      //get: function(){{{
+      get: function(){
+        var b = this.element,
+          o = b.position(),
+          w = b.width(),
+          h = b.height(),
+          rv = { x: o.left, y: o.top };
+
+        rv.x2 = rv.x + w;
+        rv.y2 = rv.y + h;
+        rv.w = w;
+        rv.h = h;
+
+        return rv;
+      },
+      //}}}
+      //insertElements: function(){{{
+      insertElements: function(){
+        var t = this, i,
+          m = t.core,
+          fr = t.element,
+          o = t.core.opt,
+          b = o.borders,
+          h = o.handles,
+          d = o.dragbars;
+
+        for(i=0; i<d.length; i++)
+          fr.append(t.createElement(o.css_dragbars,d[i]));
+
+        for(i=0; i<h.length; i++)
+          fr.append(t.createElement(o.css_handles,h[i]));
+
+        for(i=0; i<b.length; i++)
+          fr.append(t.createElement(o.css_borders,b[i]));
+      }
+      //}}}
+    }
+  });
+  Jcrop.registerComponent('Selection',Selection);
+
+
+  /**
+   * StageDrag
+   * Facilitates dragging
+   */
+  // var StageDrag = function(manager,opt){{{
+  var StageDrag = function(manager,opt){
+    $.extend(this,StageDrag.defaults,opt || {});
+    this.manager = manager;
+    this.core = manager.core;
+  };
+  // }}}
+  // StageDrag.defaults = {{{
+  StageDrag.defaults = {
+    offset: [ -8, -8 ],
+    active: true,
+    minsize: [ 20, 20 ]
+  };
+  // }}}
+
+  $.extend(StageDrag.prototype,{
+    // start: function(e){{{
+    start: function(e){
+      var c = this.core;
+
+      // Do nothing if allowSelect is off
+      if (!c.opt.allowSelect) return;
+
+      // Also do nothing if we can't draw any more selections
+      if (c.opt.multi && c.opt.multiMax && (c.ui.multi.length >= c.opt.multiMax)) return false;
+
+      // calculate a few variables for this drag operation
+      var o = $(e.currentTarget).offset();
+      var origx = e.pageX - o.left + this.offset[0];
+      var origy = e.pageY - o.top + this.offset[1];
+      var m = c.ui.multi;
+
+      // Determine newly dragged crop behavior if multi disabled
+      if (!c.opt.multi) {
+        // For multiCleaanup true, remove all existing selections
+        if (c.opt.multiCleanup){
+          for(var i=0;i<m.length;i++) m[i].remove();
+          c.ui.multi = [];
+        }
+        // If not, only remove the currently active selection
+        else {
+          c.removeSelection(c.ui.selection);
+        }
+      }
+
+      c.container.addClass('jcrop-dragging');
+
+      // Create the new selection
+      var sel = c.newSelection()
+        // and position it
+        .updateRaw(Jcrop.wrapFromXywh([origx,origy,1,1]));
+
+      sel.element.trigger('cropstart',[sel,this.core.unscale(sel.get())]);
+      
+      return sel.startDrag(e,'se');
+    },
+    // }}}
+    // end: function(x,y){{{
+    end: function(x,y){
+      this.drag(x,y);
+      var b = this.sel.get();
+
+      this.core.container.removeClass('jcrop-dragging');
+
+      if ((b.w < this.minsize[0]) || (b.h < this.minsize[1]))
+        this.core.requestDelete();
+
+        else this.sel.focus();
+    }
+    // }}}
+  });
+  Jcrop.registerComponent('StageDrag',StageDrag);
+
+
+  /**
+   * StageManager
+   * Provides basic stage-specific functionality
+   */
+  // var StageManager = function(core){{{
+  var StageManager = function(core){
+    this.core = core;
+    this.ui = core.ui;
+    this.init();
+  };
+  // }}}
+
+  $.extend(StageManager.prototype,{
+    // init: function(){{{
+    init: function(){
+      this.setupEvents();
+      this.dragger = new StageDrag(this);
+    },
+    // }}}
+    // tellConfigUpdate: function(options){{{
+    tellConfigUpdate: function(options){
+      for(var i=0,m=this.ui.multi,l=m.length;i<l;i++)
+        if (m[i].setOptions && (m[i].linked || (this.core.opt.linkCurrent && m[i] == this.ui.selection)))
+          m[i].setOptions(options);
+    },
+    // }}}
+    // startDragHandler: function(){{{
+    startDragHandler: function(){
+      var t = this;
+      return function(e){
+        if (!e.button || t.core.opt.is_ie_lt9) return t.dragger.start(e);
+      };
+    },
+    // }}}
+    // removeEvents: function(){{{
+    removeEvents: function(){
+      this.core.event.off('.jcrop-stage');
+      this.core.container.off('.jcrop-stage');
+    },
+    // }}}
+    // shimLegacyHandlers: function(options){{{
+    // This method uses the legacyHandlers configuration object to
+    // gracefully wrap old-style Jcrop events with new ones
+    shimLegacyHandlers: function(options){
+      var _x = {}, core = this.core, tmp;
+
+      $.each(core.opt.legacyHandlers,function(k,i){
+        if (k in options) {
+          tmp = options[k];
+          core.container.off('.jcrop-'+k)
+            .on(i+'.jcrop.jcrop-'+k,function(e,s,c){
+              tmp.call(core,c);
+            });
+          delete options[k];
+        }
+      });
+    },
+    // }}}
+    // setupEvents: function(){{{
+    setupEvents: function(){
+      var t = this, c = t.core;
+
+      c.event.on('configupdate.jcrop-stage',function(e){
+        t.shimLegacyHandlers(c.opt);
+        t.tellConfigUpdate(c.opt)
+        c.container.trigger('cropconfig',[c,c.opt]);
+      });
+
+      this.core.container
+        .on('mousedown.jcrop.jcrop-stage',this.startDragHandler());
+    }
+    // }}}
+  });
+  Jcrop.registerComponent('StageManager',StageManager);
+
+
+  var Thumbnailer = function(){
+  };
+
+  $.extend(Thumbnailer,{
+    defaults: {
+      // Set to a specific Selection object
+      // If this value is set, the preview will only track that Selection
+      selection: null,
+
+      fading: true,
+      fadeDelay: 1000,
+      fadeDuration: 1000,
+      autoHide: false,
+      width: 80,
+      height: 80,
+      _hiding: null
+    },
+
+    prototype: {
+      recopyCanvas: function(){
+        var s = this.core.ui.stage, cxt = s.context;
+        this.context.putImageData(cxt.getImageData(0,0,s.canvas.width,s.canvas.height),0,0);
+      },
+      init: function(core,options){
+        var t = this;
+        this.core = core;
+        $.extend(this,Thumbnailer.defaults,options);
+        t.initEvents();
+        t.refresh();
+        t.insertElements();
+        if (t.selection) {
+          t.renderSelection(t.selection);
+          t.selectionTarget = t.selection.element[0];
+        } else if (t.core.ui.selection) {
+          t.renderSelection(t.core.ui.selection);
+        }
+
+        if (t.core.ui.stage.canvas) {
+          t.context = t.preview[0].getContext('2d');
+          t.core.container.on('cropredraw',function(e){
+            t.recopyCanvas();
+            t.refresh();
+          });
+        }
+      },
+      updateImage: function(imgel){
+        this.preview.remove();
+        this.preview = $($.Jcrop.imageClone(imgel));
+        this.element.append(this.preview);
+        this.refresh();
+        return this;
+      },
+      insertElements: function(){
+        this.preview = $($.Jcrop.imageClone(this.core.ui.stage.imgsrc));
+
+        this.element = $('<div />').addClass('jcrop-thumb')
+          .width(this.width).height(this.height)
+          .append(this.preview)
+          .appendTo(this.core.container);
+      },
+      resize: function(w,h){
+        this.width = w;
+        this.height = h;
+        this.element.width(w).height(h);
+        this.renderCoords(this.last);
+      },
+      refresh: function(){
+        this.cw = (this.core.opt.xscale * this.core.container.width());
+        this.ch = (this.core.opt.yscale * this.core.container.height());
+        if (this.last) {
+          this.renderCoords(this.last);
+        }
+      },
+      renderCoords: function(c){
+        var rx = this.width / c.w;
+        var ry = this.height / c.h;
+
+        this.preview.css({
+          width: Math.round(rx * this.cw) + 'px',
+          height: Math.round(ry * this.ch) + 'px',
+          marginLeft: '-' + Math.round(rx * c.x) + 'px',
+          marginTop: '-' + Math.round(ry * c.y) + 'px'
+        });
+
+        this.last = c;
+        return this;
+      },
+      renderSelection: function(s){
+        return this.renderCoords(s.core.unscale(s.get()));
+      },
+      selectionStart: function(s){
+        this.renderSelection(s);
+      },
+      show: function(){
+        if (this._hiding) clearTimeout(this._hiding);
+
+        if (!this.fading) this.element.stop().css({ opacity: 1 });
+        else this.element.stop().animate({ opacity: 1 },{ duration: 80, queue: false });
+      },
+      hide: function(){
+        var t = this;
+        if (!t.fading) t.element.hide();
+        else t._hiding = setTimeout(function(){
+          t._hiding = null;
+          t.element.stop().animate({ opacity: 0 },{ duration: t.fadeDuration, queue: false });
+        },t.fadeDelay);
+      },
+      initEvents: function(){
+        var t = this;
+        t.core.container.on('croprotstart croprotend cropimage cropstart cropmove cropend',function(e,s,c){
+          if (t.selectionTarget && (t.selectionTarget !== e.target)) return false;
+
+          switch(e.type){
+
+            case 'cropimage':
+              t.updateImage(c);
+              break;
+
+            case 'cropstart':
+              t.selectionStart(s);
+            case 'croprotstart':
+              t.show();
+              break;
+
+            case 'cropend':
+              t.renderCoords(c);
+            case 'croprotend':
+              if (t.autoHide) t.hide();
+              break;
+
+            case 'cropmove':
+              t.renderCoords(c);
+              break;
+          }
+        });
+      }
+    }
+  });
+  Jcrop.registerComponent('Thumbnailer',Thumbnailer);
+
+
+  /**
+   * DialDrag component
+   * This is a little hacky, it was adapted from some previous/old code
+   * Plan to update this API in the future
+   */
+  var DialDrag = function() { };
+
+  DialDrag.prototype = {
+
+    init: function(core,actuator,callback){
+      var that = this;
+
+      if (!actuator) actuator = core.container;
+      this.$btn = $(actuator);
+      this.$targ = $(actuator);
+      this.core = core;
+
+      this.$btn
+        .addClass('dialdrag')
+        .on('mousedown.dialdrag',this.mousedown())
+        .data('dialdrag',this);
+
+      if (!$.isFunction(callback)) callback = function(){ };
+      this.callback = callback;
+      this.ondone = callback;
+    },
+
+    remove: function(){
+      this.$btn
+        .removeClass('dialdrag')
+        .off('.dialdrag')
+        .data('dialdrag',null);
+      return this;
+    },
+
+    setTarget: function(obj){
+      this.$targ = $(obj);
+      return this;
+    },
+
+    getOffset: function(){
+      var targ = this.$targ, pos = targ.offset();
+      return [
+        pos.left + (targ.width()/2),
+        pos.top + (targ.height()/2)
+      ];
+    },
+
+    relMouse: function(e){
+      var x = e.pageX - this.offset[0],
+          y = e.pageY - this.offset[1],
+          ang = Math.atan2(y,x) * (180 / Math.PI),
+          vec = Math.sqrt(Math.pow(x,2)+Math.pow(y,2));
+      return [ x, y, ang, vec ];
+    },
+
+    mousedown: function(){
+      var that = this;
+
+      function mouseUp(e){
+        $(window).off('.dialdrag');
+        that.ondone.call(that,that.relMouse(e));
+        that.core.container.trigger('croprotend');
+      }
+
+      function mouseMove(e){
+        that.callback.call(that,that.relMouse(e));
+      }
+
+      return function(e) {
+        that.offset = that.getOffset();
+        var rel = that.relMouse(e);
+        that.angleOffset = -that.core.ui.stage.angle+rel[2];
+        that.distOffset = rel[3];
+        that.dragOffset = [rel[0],rel[1]];
+        that.core.container.trigger('croprotstart');
+
+        $(window)
+          .on('mousemove.dialdrag',mouseMove)
+          .on('mouseup.dialdrag',mouseUp);
+
+        that.callback.call(that,that.relMouse(e));
+
+        return false;
+      };
+    }
+    
+  };
+  Jcrop.registerComponent('DialDrag',DialDrag);
+
+
+    /////////////////////////////////
+    // DEFAULT SETTINGS
+
+    Jcrop.defaults = {
+
+      // Selection Behavior
+      edge: { n: 0, s: 0, e: 0, w: 0 },
+      setSelect: null,
+      linked: true,
+      linkCurrent: true,
+      canDelete: true,
+      canSelect: true,
+      canDrag: true,
+      canResize: true,
+
+      // Component constructors
+      eventManagerComponent:  Jcrop.component.EventManager,
+      keyboardComponent:      Jcrop.component.Keyboard,
+      dragstateComponent:     Jcrop.component.DragState,
+      stagemanagerComponent:  Jcrop.component.StageManager,
+      animatorComponent:      Jcrop.component.Animator,
+      selectionComponent:     Jcrop.component.Selection,
+
+      // This is a function that is called, which returns a stage object
+      stageConstructor:       Jcrop.stageConstructor,
+
+      // Stage Behavior
+      allowSelect: true,
+      multi: false,
+      multiMax: false,
+      multiCleanup: true,
+      animation: true,
+      animEasing: 'swing',
+      animDuration: 400,
+      fading: true,
+      fadeDuration: 300,
+      fadeEasing: 'swing',
+      bgColor: 'black',
+      bgOpacity: .5,
+
+      // Startup options
+      applyFilters: [ 'constrain', 'extent', 'backoff', 'ratio', 'shader', 'round' ],
+      borders:  [ 'e', 'w', 's', 'n' ],
+      handles:  [ 'n', 's', 'e', 'w', 'sw', 'ne', 'nw', 'se' ],
+      dragbars: [ 'n', 'e', 'w', 's' ],
+
+      dragEventTarget: window,
+
+      xscale: 1,
+      yscale: 1,
+
+      boxWidth: null,
+      boxHeight: null,
+
+      // CSS Classes
+      // @todo: These need to be moved to top-level object keys
+      // for better customization. Currently if you try to extend one
+      // via an options object to Jcrop, it will wipe out all
+      // the others you don't specify. Be careful for now!
+      css_nodrag: 'jcrop-nodrag',
+      css_drag: 'jcrop-drag',
+      css_container: 'jcrop-active',
+      css_shades: 'jcrop-shades',
+      css_selection: 'jcrop-selection',
+      css_borders: 'jcrop-border',
+      css_handles: 'jcrop-handle jcrop-drag',
+      css_button: 'jcrop-box jcrop-drag',
+      css_noresize: 'jcrop-noresize',
+      css_dragbars: 'jcrop-dragbar jcrop-drag',
+
+      legacyHandlers: {
+        onChange: 'cropmove',
+        onSelect: 'cropend'
+      }
+
+    };
+
+
+  // Jcrop API methods
+  $.extend(Jcrop.prototype,{
+    //init: function(){{{
+    init: function(){
+      this.event = new this.opt.eventManagerComponent(this);
+      this.ui.keyboard = new this.opt.keyboardComponent(this);
+      this.ui.manager = new this.opt.stagemanagerComponent(this);
+      this.applyFilters();
+
+      if ($.Jcrop.supportsTouch)
+        new $.Jcrop.component.Touch(this);
+
+      this.initEvents();
+    },
+    //}}}
+    // applySizeConstraints: function(){{{
+    applySizeConstraints: function(){
+      var o = this.opt,
+          img = this.opt.imgsrc;
+
+      if (img){
+
+        var iw = img.naturalWidth || img.width,
+            ih = img.naturalHeight || img.height,
+            bw = o.boxWidth || iw,
+            bh = o.boxHeight || ih;
+
+        if (img && ((iw > bw) || (ih > bh))){
+          var bx = Jcrop.getLargestBox(iw/ih,bw,bh);
+          $(img).width(bx[0]).height(bx[1]);
+          this.resizeContainer(bx[0],bx[1]);
+          this.opt.xscale = iw / bx[0];
+          this.opt.yscale = ih / bx[1];
+        }
+          
+      }
+
+      if (this.opt.trueSize){
+        var dw = this.opt.trueSize[0];
+        var dh = this.opt.trueSize[1];
+        var cs = this.getContainerSize();
+        this.opt.xscale = dw / cs[0];
+        this.opt.yscale = dh / cs[1];
+      }
+    },
+    // }}}
+    initComponent: function(name){
+      if (Jcrop.component[name]) {
+        var args = Array.prototype.slice.call(arguments);
+        var obj = new Jcrop.component[name];
+        args.shift();
+        args.unshift(this);
+        obj.init.apply(obj,args);
+        return obj;
+      }
+    },
+    // setOptions: function(opt){{{
+    setOptions: function(opt,proptype){
+
+      if (!$.isPlainObject(opt)) opt = {};
+
+      $.extend(this.opt,opt);
+
+      // Handle a setSelect value
+      if (this.opt.setSelect) {
+
+        // If there is no current selection
+        // passing setSelect will create one
+        if (!this.ui.multi.length)
+          this.newSelection();
+
+        // Use these values to update the current selection
+        this.setSelect(this.opt.setSelect);
+
+        // Set to null so it doesn't get called again
+        this.opt.setSelect = null;
+      }
+
+      this.event.trigger('configupdate');
+      return this;
+    },
+    // }}}
+    //destroy: function(){{{
+    destroy: function(){
+      if (this.opt.imgsrc) {
+        this.container.before(this.opt.imgsrc);
+        this.container.remove();
+        $(this.opt.imgsrc).removeData('Jcrop').show();
+      } else {
+        // @todo: more elegant destroy() process for non-image containers
+        this.container.remove();
+      }
+    },
+    // }}}
+    // applyFilters: function(){{{
+    applyFilters: function(){
+      var obj;
+      for(var i=0,f=this.opt.applyFilters,l=f.length; i<l; i++){
+        if ($.Jcrop.filter[f[i]])
+          obj = new $.Jcrop.filter[f[i]];
+          obj.core = this;
+          if (obj.init) obj.init();
+          this.filter[f[i]] = obj;
+      }
+    },
+    // }}}
+    // getDefaultFilters: function(){{{
+    getDefaultFilters: function(){
+      var rv = [];
+
+      for(var i=0,f=this.opt.applyFilters,l=f.length; i<l; i++)
+        if(this.filter.hasOwnProperty(f[i]))
+          rv.push(this.filter[f[i]]);
+
+      rv.sort(function(x,y){ return x.priority - y.priority; });
+      return rv;
+    },
+    // }}}
+    // setSelection: function(sel){{{
+    setSelection: function(sel){
+      var m = this.ui.multi;
+      var n = [];
+      for(var i=0;i<m.length;i++) {
+        if (m[i] !== sel) n.push(m[i]);
+        m[i].toBack();
+      }
+      n.unshift(sel);
+      this.ui.multi = n;
+      this.ui.selection = sel;
+      sel.toFront();
+      return sel;
+    },
+    // }}}
+    // getSelection: function(raw){{{
+    getSelection: function(raw){
+      var b = this.ui.selection.get();
+      return b;
+    },
+    // }}}
+    // newSelection: function(){{{
+    newSelection: function(sel){
+      if (!sel)
+        sel = new this.opt.selectionComponent();
+
+      sel.init(this);
+      this.setSelection(sel);
+
+      return sel;
+    },
+    // }}}
+    // hasSelection: function(sel){{{
+    hasSelection: function(sel){
+      for(var i=0;i<this.ui.multi;i++)
+        if (sel === this.ui.multi[i]) return true;
+    },
+    // }}}
+    // removeSelection: function(sel){{{
+    removeSelection: function(sel){
+      var i, n = [], m = this.ui.multi;
+      for(var i=0;i<m.length;i++){
+        if (sel !== m[i])
+          n.push(m[i]);
+        else m[i].remove();
+      }
+      return this.ui.multi = n;
+    },
+    // }}}
+    //addFilter: function(filter){{{
+    addFilter: function(filter){
+      for(var i=0,m=this.ui.multi,l=m.length; i<l; i++)
+        m[i].addFilter(filter);
+
+      return this;
+    },
+    //}}}
+    // removeFiltersByTag: function(tag){{{
+    removeFilter: function(filter){
+      for(var i=0,m=this.ui.multi,l=m.length; i<l; i++)
+        m[i].removeFilter(filter);
+
+      return this;
+    },
+    // }}}
+    // blur: function(){{{
+    blur: function(){
+      this.ui.selection.blur();
+      return this;
+    },
+    // }}}
+    // focus: function(){{{
+    focus: function(){
+      this.ui.selection.focus();
+      return this;
+    },
+    // }}}
+    //initEvents: function(){{{
+    initEvents: function(){
+      var t = this;
+      t.container.on('selectstart',function(e){ return false; })
+        .on('mousedown','.'+t.opt.css_drag,t.startDrag());
+    },
+    //}}}
+    // maxSelect: function(){{{
+    maxSelect: function(){
+      this.setSelect([0,0,this.elw,this.elh]);
+    },
+    // }}}
+    // nudge: function(x,y){{{
+    nudge: function(x,y){
+      var s = this.ui.selection, b = s.get();
+
+      b.x += x;
+      b.x2 += x;
+      b.y += y;
+      b.y2 += y;
+
+      if (b.x < 0) { b.x2 = b.w; b.x = 0; }
+        else if (b.x2 > this.elw) { b.x2 = this.elw; b.x = b.x2 - b.w; }
+
+      if (b.y < 0) { b.y2 = b.h; b.y = 0; }
+        else if (b.y2 > this.elh) { b.y2 = this.elh; b.y = b.y2 - b.h; }
+      
+      s.element.trigger('cropstart',[s,this.unscale(b)]);
+      s.updateRaw(b,'move');
+      s.element.trigger('cropend',[s,this.unscale(b)]);
+    },
+    // }}}
+    // refresh: function(){{{
+    refresh: function(){
+      for(var i=0,s=this.ui.multi,l=s.length;i<l;i++)
+        s[i].refresh();
+    },
+    // }}}
+    // blurAll: function(){{{
+    blurAll: function(){
+      var m = this.ui.multi;
+      for(var i=0;i<m.length;i++) {
+        if (m[i] !== sel) n.push(m[i]);
+        m[i].toBack();
+      }
+    },
+    // }}}
+    // scale: function(b){{{
+    scale: function(b){
+      var xs = this.opt.xscale,
+          ys = this.opt.yscale;
+
+      return {
+        x: b.x / xs,
+        y: b.y / ys,
+        x2: b.x2 / xs,
+        y2: b.y2 / ys,
+        w: b.w / xs,
+        h: b.h / ys
+      };
+    },
+    // }}}
+    // unscale: function(b){{{
+    unscale: function(b){
+      var xs = this.opt.xscale,
+          ys = this.opt.yscale;
+
+      return {
+        x: b.x * xs,
+        y: b.y * ys,
+        x2: b.x2 * xs,
+        y2: b.y2 * ys,
+        w: b.w * xs,
+        h: b.h * ys
+      };
+    },
+    // }}}
+    // requestDelete: function(){{{
+    requestDelete: function(){
+      if ((this.ui.multi.length > 1) && (this.ui.selection.canDelete))
+        return this.deleteSelection();
+    },
+    // }}}
+    // deleteSelection: function(){{{
+    deleteSelection: function(){
+      if (this.ui.selection) {
+        this.removeSelection(this.ui.selection);
+        if (this.ui.multi.length) this.ui.multi[0].focus();
+        this.ui.selection.refresh();
+      }
+    },
+    // }}}
+    // animateTo: function(box){{{
+    animateTo: function(box){
+      if (this.ui.selection)
+        this.ui.selection.animateTo(box);
+      return this;
+    },
+    // }}}
+    // setselect: function(box){{{
+    setSelect: function(box){
+      if (this.ui.selection)
+        this.ui.selection.update(Jcrop.wrapFromXywh(box));
+      return this;
+    },
+    // }}}
+    //startDrag: function(){{{
+    startDrag: function(){
+      var t = this;
+      return function(e){
+        var $targ = $(e.target);
+        var selection = $targ.closest('.'+t.opt.css_selection).data('selection');
+        var ord = $targ.data('ord');
+        t.container.trigger('cropstart',[selection,t.unscale(selection.get())]);
+        selection.startDrag(e,ord);
+        return false;
+      };
+    },
+    //}}}
+    // getContainerSize: function(){{{
+    getContainerSize: function(){
+      return [ this.container.width(), this.container.height() ];
+    },
+    // }}}
+    // resizeContainer: function(w,h){{{
+    resizeContainer: function(w,h){
+      this.container.width(w).height(h);
+      this.refresh();
+    },
+    // }}}
+    // setImage: function(src,cb){{{
+    setImage: function(src,cb){
+      var t = this, targ = t.opt.imgsrc;
+
+      if (!targ) return false;
+
+      new $.Jcrop.component.ImageLoader(src,null,function(w,h){
+        t.resizeContainer(w,h);
+
+        targ.src = src;
+        $(targ).width(w).height(h);
+        t.applySizeConstraints();
+        t.refresh();
+        t.container.trigger('cropimage',[t,targ]);
+
+        if (typeof cb == 'function')
+          cb.call(t,w,h);
+      });
+    },
+    // }}}
+    // update: function(b){{{
+    update: function(b){
+      if (this.ui.selection)
+        this.ui.selection.update(b);
+    }
+    // }}}
+  });
+
+  // Jcrop jQuery plugin function
+  $.fn.Jcrop = function(options,callback){
+    options = options || {};
+
+    var first = this.eq(0).data('Jcrop');
+    var args = Array.prototype.slice.call(arguments);
+
+    // Return API if requested
+    if (options == 'api') { return first; }
+
+    // Allow calling API methods (with arguments)
+    else if (first && (typeof options == 'string')) {
+
+      // Call method if it exists
+      if (first[options]) {
+        args.shift();
+        first[options].apply(first,args);
+        return first;
+      }
+
+      // Unknown input/method does not exist
+      return false;
+    }
+
+    // Otherwise, loop over selected elements
+    this.each(function(){
+      var t = this, $t = $(this);
+      var exists = $t.data('Jcrop');
+      var obj;
+
+      // If Jcrop already exists on this element only setOptions()
+      if (exists)
+        exists.setOptions(options);
+
+      else {
+
+        if (!options.stageConstructor)
+          options.stageConstructor = $.Jcrop.stageConstructor;
+
+        options.stageConstructor(this,options,function(stage,options){
+          var selection = options.setSelect;
+          if (selection) delete(options.setSelect);
+
+          var obj = $.Jcrop.attach(stage.element,options);
+
+          if (typeof stage.attach == 'function')
+            stage.attach(obj);
+
+          $t.data('Jcrop',obj);
+
+          if (selection) {
+            obj.newSelection();
+            obj.setSelect(selection);
+          }
+
+          if (typeof callback == 'function')
+            callback.call(obj);
+        });
+      }
+
+      return this;
+    });
+  };
+
+/* Modernizr 2.7.1 (Custom Build) | MIT & BSD
+ * Build: http://modernizr.com/download/#-csstransforms-canvas-canvastext-draganddrop-inlinesvg-svg-svgclippaths-touch-teststyles-testprop-testallprops-hasevent-prefixes-domprefixes-url_data_uri
+ */
+;
+
+var Modernizr = (function( window, document, undefined ) {
+
+    var version = '2.7.1',
+
+    Modernizr = {},
+
+
+    docElement = document.documentElement,
+
+    mod = 'modernizr',
+    modElem = document.createElement(mod),
+    mStyle = modElem.style,
+
+    inputElem  ,
+
+
+    toString = {}.toString,
+
+    prefixes = ' -webkit- -moz- -o- -ms- '.split(' '),
+
+
+
+    omPrefixes = 'Webkit Moz O ms',
+
+    cssomPrefixes = omPrefixes.split(' '),
+
+    domPrefixes = omPrefixes.toLowerCase().split(' '),
+
+    ns = {'svg': 'http://www.w3.org/2000/svg'},
+
+    tests = {},
+    inputs = {},
+    attrs = {},
+
+    classes = [],
+
+    slice = classes.slice,
+
+    featureName, 
+
+
+    injectElementWithStyles = function( rule, callback, nodes, testnames ) {
+
+      var style, ret, node, docOverflow,
+          div = document.createElement('div'),
+                body = document.body,
+                fakeBody = body || document.createElement('body');
+
+      if ( parseInt(nodes, 10) ) {
+                      while ( nodes-- ) {
+              node = document.createElement('div');
+              node.id = testnames ? testnames[nodes] : mod + (nodes + 1);
+              div.appendChild(node);
+          }
+      }
+
+                style = ['&#173;','<style id="s', mod, '">', rule, '</style>'].join('');
+      div.id = mod;
+          (body ? div : fakeBody).innerHTML += style;
+      fakeBody.appendChild(div);
+      if ( !body ) {
+                fakeBody.style.background = '';
+                fakeBody.style.overflow = 'hidden';
+          docOverflow = docElement.style.overflow;
+          docElement.style.overflow = 'hidden';
+          docElement.appendChild(fakeBody);
+      }
+
+      ret = callback(div, rule);
+        if ( !body ) {
+          fakeBody.parentNode.removeChild(fakeBody);
+          docElement.style.overflow = docOverflow;
+      } else {
+          div.parentNode.removeChild(div);
+      }
+
+      return !!ret;
+
+    },
+
+
+
+    isEventSupported = (function() {
+
+      var TAGNAMES = {
+        'select': 'input', 'change': 'input',
+        'submit': 'form', 'reset': 'form',
+        'error': 'img', 'load': 'img', 'abort': 'img'
+      };
+
+      function isEventSupported( eventName, element ) {
+
+        element = element || document.createElement(TAGNAMES[eventName] || 'div');
+        eventName = 'on' + eventName;
+
+            var isSupported = eventName in element;
+
+        if ( !isSupported ) {
+                if ( !element.setAttribute ) {
+            element = document.createElement('div');
+          }
+          if ( element.setAttribute && element.removeAttribute ) {
+            element.setAttribute(eventName, '');
+            isSupported = is(element[eventName], 'function');
+
+                    if ( !is(element[eventName], 'undefined') ) {
+              element[eventName] = undefined;
+            }
+            element.removeAttribute(eventName);
+          }
+        }
+
+        element = null;
+        return isSupported;
+      }
+      return isEventSupported;
+    })(),
+
+
+    _hasOwnProperty = ({}).hasOwnProperty, hasOwnProp;
+
+    if ( !is(_hasOwnProperty, 'undefined') && !is(_hasOwnProperty.call, 'undefined') ) {
+      hasOwnProp = function (object, property) {
+        return _hasOwnProperty.call(object, property);
+      };
+    }
+    else {
+      hasOwnProp = function (object, property) { 
+        return ((property in object) && is(object.constructor.prototype[property], 'undefined'));
+      };
+    }
+
+
+    if (!Function.prototype.bind) {
+      Function.prototype.bind = function bind(that) {
+
+        var target = this;
+
+        if (typeof target != "function") {
+            throw new TypeError();
+        }
+
+        var args = slice.call(arguments, 1),
+            bound = function () {
+
+            if (this instanceof bound) {
+
+              var F = function(){};
+              F.prototype = target.prototype;
+              var self = new F();
+
+              var result = target.apply(
+                  self,
+                  args.concat(slice.call(arguments))
+              );
+              if (Object(result) === result) {
+                  return result;
+              }
+              return self;
+
+            } else {
+
+              return target.apply(
+                  that,
+                  args.concat(slice.call(arguments))
+              );
+
+            }
+
+        };
+
+        return bound;
+      };
+    }
+
+    function setCss( str ) {
+        mStyle.cssText = str;
+    }
+
+    function setCssAll( str1, str2 ) {
+        return setCss(prefixes.join(str1 + ';') + ( str2 || '' ));
+    }
+
+    function is( obj, type ) {
+        return typeof obj === type;
+    }
+
+    function contains( str, substr ) {
+        return !!~('' + str).indexOf(substr);
+    }
+
+    function testProps( props, prefixed ) {
+        for ( var i in props ) {
+            var prop = props[i];
+            if ( !contains(prop, "-") && mStyle[prop] !== undefined ) {
+                return prefixed == 'pfx' ? prop : true;
+            }
+        }
+        return false;
+    }
+
+    function testDOMProps( props, obj, elem ) {
+        for ( var i in props ) {
+            var item = obj[props[i]];
+            if ( item !== undefined) {
+
+                            if (elem === false) return props[i];
+
+                            if (is(item, 'function')){
+                                return item.bind(elem || obj);
+                }
+
+                            return item;
+            }
+        }
+        return false;
+    }
+
+    function testPropsAll( prop, prefixed, elem ) {
+
+        var ucProp  = prop.charAt(0).toUpperCase() + prop.slice(1),
+            props   = (prop + ' ' + cssomPrefixes.join(ucProp + ' ') + ucProp).split(' ');
+
+            if(is(prefixed, "string") || is(prefixed, "undefined")) {
+          return testProps(props, prefixed);
+
+            } else {
+          props = (prop + ' ' + (domPrefixes).join(ucProp + ' ') + ucProp).split(' ');
+          return testDOMProps(props, prefixed, elem);
+        }
+    }
+
+
+
+    tests['canvas'] = function() {
+        var elem = document.createElement('canvas');
+        return !!(elem.getContext && elem.getContext('2d'));
+    };
+
+    tests['canvastext'] = function() {
+        return !!(Modernizr['canvas'] && is(document.createElement('canvas').getContext('2d').fillText, 'function'));
+    };
+    tests['touch'] = function() {
+        var bool;
+
+        if(('ontouchstart' in window) || window.DocumentTouch && document instanceof DocumentTouch) {
+          bool = true;
+        } else {
+          injectElementWithStyles(['@media (',prefixes.join('touch-enabled),('),mod,')','{#modernizr{top:9px;position:absolute}}'].join(''), function( node ) {
+            bool = node.offsetTop === 9;
+          });
+        }
+
+        return bool;
+    };
+
+    tests['draganddrop'] = function() {
+        var div = document.createElement('div');
+        return ('draggable' in div) || ('ondragstart' in div && 'ondrop' in div);
+    };
+
+
+    tests['csstransforms'] = function() {
+        return !!testPropsAll('transform');
+    };
+
+
+    tests['svg'] = function() {
+        return !!document.createElementNS && !!document.createElementNS(ns.svg, 'svg').createSVGRect;
+    };
+
+    tests['inlinesvg'] = function() {
+      var div = document.createElement('div');
+      div.innerHTML = '<svg/>';
+      return (div.firstChild && div.firstChild.namespaceURI) == ns.svg;
+    };
+
+
+
+    tests['svgclippaths'] = function() {
+        return !!document.createElementNS && /SVGClipPath/.test(toString.call(document.createElementNS(ns.svg, 'clipPath')));
+    };
+
+    for ( var feature in tests ) {
+        if ( hasOwnProp(tests, feature) ) {
+                                    featureName  = feature.toLowerCase();
+            Modernizr[featureName] = tests[feature]();
+
+            classes.push((Modernizr[featureName] ? '' : 'no-') + featureName);
+        }
+    }
+
+
+
+     Modernizr.addTest = function ( feature, test ) {
+       if ( typeof feature == 'object' ) {
+         for ( var key in feature ) {
+           if ( hasOwnProp( feature, key ) ) {
+             Modernizr.addTest( key, feature[ key ] );
+           }
+         }
+       } else {
+
+         feature = feature.toLowerCase();
+
+         if ( Modernizr[feature] !== undefined ) {
+                                              return Modernizr;
+         }
+
+         test = typeof test == 'function' ? test() : test;
+
+         if (typeof enableClasses !== "undefined" && enableClasses) {
+           docElement.className += ' ' + (test ? '' : 'no-') + feature;
+         }
+         Modernizr[feature] = test;
+
+       }
+
+       return Modernizr; 
+     };
+
+
+    setCss('');
+    modElem = inputElem = null;
+
+
+    Modernizr._version      = version;
+
+    Modernizr._prefixes     = prefixes;
+    Modernizr._domPrefixes  = domPrefixes;
+    Modernizr._cssomPrefixes  = cssomPrefixes;
+
+
+    Modernizr.hasEvent      = isEventSupported;
+
+    Modernizr.testProp      = function(prop){
+        return testProps([prop]);
+    };
+
+    Modernizr.testAllProps  = testPropsAll;
+
+
+    Modernizr.testStyles    = injectElementWithStyles;
+    return Modernizr;
+
+})(window, window.document);
+// data uri test.
+// https://github.com/Modernizr/Modernizr/issues/14
+
+// This test is asynchronous. Watch out.
+
+
+// in IE7 in HTTPS this can cause a Mixed Content security popup. 
+//  github.com/Modernizr/Modernizr/issues/362
+// To avoid that you can create a new iframe and inject this.. perhaps..
+
+
+(function(){
+
+  var datauri = new Image();
+
+
+  datauri.onerror = function() {
+      Modernizr.addTest('datauri', function () { return false; });
+  };  
+  datauri.onload = function() {
+      Modernizr.addTest('datauri', function () { return (datauri.width == 1 && datauri.height == 1); });
+  };
+
+  datauri.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==";
+
+})();
+;
+
+  // Attach to jQuery object
+  $.Jcrop = Jcrop;
+
+  $.Jcrop.supportsCanvas = Modernizr.canvas;
+  $.Jcrop.supportsCanvasText = Modernizr.canvastext;
+  $.Jcrop.supportsDragAndDrop = Modernizr.draganddrop;
+  $.Jcrop.supportsDataURI = Modernizr.datauri;
+  $.Jcrop.supportsSVG = Modernizr.svg;
+  $.Jcrop.supportsInlineSVG = Modernizr.inlinesvg;
+  $.Jcrop.supportsSVGClipPaths = Modernizr.svgclippaths;
+  $.Jcrop.supportsCSSTransforms = Modernizr.csstransforms;
+  $.Jcrop.supportsTouch = Modernizr.touch;
+
+})(jQuery);
+
+/**
+ * 省市县联动
+ * @param  {[type]} $ [description]
+ * @return {[type]}   [description]
+ */
+
+(function (factory) {
+    
+    if (typeof define === 'function' && define.amd) {
+        // AMD
+        define(['jquery'], factory);
+    } else if (typeof exports === 'object') {
+        // CommonJS
+        factory(require('jquery'));
+    } else {
+        // Browser globals
+        factory(jQuery);
+    }
+
+}(function ($) {
+
+    $.fn.region = function (options) {
+        
+        if(!options) return;
+
+        var parmas = [];
+
+        $(this).find('select').each(function (key, val) {
+            parmas.push($(this).attr('id') + '|' + $(this).attr('data-id'));
+        });
+
+        // 初始化参数
+        var url = options.url || location.pathname,
+            type = options.type || 'get',
+            region = null,
+            // map中的值要和region.json中的省/市/区县key保持一致
+            map = ['p', 'c', 'd'];
+
+        // 获取全部数据
+        (function () {
+            $.ajax({
+                url: url,
+                type: type,
+                dataType: 'json',
+                success: function (data) {
+                    // var data = $.parseJSON(data);
+                    if(!data) return;
+
+                    // 将请求来的地区数据缓存到本地变量中
+                    region = data;
+                },
+                error: function () {
+                    console.log('Region error!');
+                }
+            });
+        })();
+
+        // 定时监听地区数据返回
+        var t = setInterval(function () {
+            // 数据未请求至本地
+            if(!region) return;
+
+            // 清除定时器
+            clearInterval(t);
+
+            var options = [];
+
+            // 有默认值的状态
+            for(var i=0; i<parmas.length; i++) {
+                var tmp = parmas[i].split('|');
+                var o = {};
+
+                o['el'] = tmp[0];
+                o['id'] = tmp[1];
+                o['pid'] = '000000'; // 省级
+                o['map'] = map[i];
+                
+                if(i > 0) {
+                    // 查找市/区县的父级ID
+                    o['pid'] = parmas[i - 1].split('|')[1];
+                }
+
+                options.push(o);
+            }
+
+            // 遍历创建
+            for(var k=0; k<options.length; k++) {
+                var curr = options[k],
+                    next = options[k + 1];
+
+                // 创建option选项
+                if(region[curr['map']] && region[curr['map']][curr['pid']]) {
+                    fill(curr['el'], region[curr['map']][curr['pid']], curr['id']);
+                }
+
+                // 切换选项 [缓存next]
+                (function (next, k) {
+                    $('#' + curr['el']).on('change', function () {
+                        var _this = $(this),
+                            id = _this.val();
+
+                        if(!next) return;
+
+                        if(region[next['map']]) {
+                            fill(next['el'], region[next['map']][id] || [], '');
+                        }
+
+                        $.each(options, function (key, val) {
+                            if(key > k + 1) {
+                                fill(val['el'], [], '');
+                            }
+                        });
+
+                    });
+                })(next, k);
+            }
+
+            // 填充选项
+            function fill(el, arr, id) {
+                var opt = '';
+
+                $.each(arr, function (key, val) {
+                    if(key == id) {
+                        opt += '<option value="' + key + '" selected>';
+                    } else {
+                        opt += '<option value="' + key + '">';
+                    }
+
+                    opt += val + '</option>'
+                });
+
+                $('#' + el + ' option:gt(0)').remove();
+                $('#' + el).append(opt);
+            }
+
+        }, 200);  
+    }
+}));
+/*
+SWFObject v2.2 <http://code.google.com/p/swfobject/> 
+is released under the MIT License <http://www.opensource.org/licenses/mit-license.php> 
+*/
+;var swfobject=function(){var D="undefined",r="object",S="Shockwave Flash",W="ShockwaveFlash.ShockwaveFlash",q="application/x-shockwave-flash",R="SWFObjectExprInst",x="onreadystatechange",O=window,j=document,t=navigator,T=false,U=[h],o=[],N=[],I=[],l,Q,E,B,J=false,a=false,n,G,m=true,M=function(){var aa=typeof j.getElementById!=D&&typeof j.getElementsByTagName!=D&&typeof j.createElement!=D,ah=t.userAgent.toLowerCase(),Y=t.platform.toLowerCase(),ae=Y?/win/.test(Y):/win/.test(ah),ac=Y?/mac/.test(Y):/mac/.test(ah),af=/webkit/.test(ah)?parseFloat(ah.replace(/^.*webkit\/(\d+(\.\d+)?).*$/,"$1")):false,X=!+"\v1",ag=[0,0,0],ab=null;
+if(typeof t.plugins!=D&&typeof t.plugins[S]==r){ab=t.plugins[S].description;if(ab&&!(typeof t.mimeTypes!=D&&t.mimeTypes[q]&&!t.mimeTypes[q].enabledPlugin)){T=true;
+X=false;ab=ab.replace(/^.*\s+(\S+\s+\S+$)/,"$1");ag[0]=parseInt(ab.replace(/^(.*)\..*$/,"$1"),10);ag[1]=parseInt(ab.replace(/^.*\.(.*)\s.*$/,"$1"),10);
+ag[2]=/[a-zA-Z]/.test(ab)?parseInt(ab.replace(/^.*[a-zA-Z]+(.*)$/,"$1"),10):0;}}else{if(typeof O.ActiveXObject!=D){try{var ad=new ActiveXObject(W);if(ad){ab=ad.GetVariable("$version");
+if(ab){X=true;ab=ab.split(" ")[1].split(",");ag=[parseInt(ab[0],10),parseInt(ab[1],10),parseInt(ab[2],10)];}}}catch(Z){}}}return{w3:aa,pv:ag,wk:af,ie:X,win:ae,mac:ac};
+}(),k=function(){if(!M.w3){return;}if((typeof j.readyState!=D&&j.readyState=="complete")||(typeof j.readyState==D&&(j.getElementsByTagName("body")[0]||j.body))){f();
+}if(!J){if(typeof j.addEventListener!=D){j.addEventListener("DOMContentLoaded",f,false);}if(M.ie&&M.win){j.attachEvent(x,function(){if(j.readyState=="complete"){j.detachEvent(x,arguments.callee);
+f();}});if(O==top){(function(){if(J){return;}try{j.documentElement.doScroll("left");}catch(X){setTimeout(arguments.callee,0);return;}f();})();}}if(M.wk){(function(){if(J){return;
+}if(!/loaded|complete/.test(j.readyState)){setTimeout(arguments.callee,0);return;}f();})();}s(f);}}();function f(){if(J){return;}try{var Z=j.getElementsByTagName("body")[0].appendChild(C("span"));
+Z.parentNode.removeChild(Z);}catch(aa){return;}J=true;var X=U.length;for(var Y=0;Y<X;Y++){U[Y]();}}function K(X){if(J){X();}else{U[U.length]=X;}}function s(Y){if(typeof O.addEventListener!=D){O.addEventListener("load",Y,false);
+}else{if(typeof j.addEventListener!=D){j.addEventListener("load",Y,false);}else{if(typeof O.attachEvent!=D){i(O,"onload",Y);}else{if(typeof O.onload=="function"){var X=O.onload;
+O.onload=function(){X();Y();};}else{O.onload=Y;}}}}}function h(){if(T){V();}else{H();}}function V(){var X=j.getElementsByTagName("body")[0];var aa=C(r);
+aa.setAttribute("type",q);var Z=X.appendChild(aa);if(Z){var Y=0;(function(){if(typeof Z.GetVariable!=D){var ab=Z.GetVariable("$version");if(ab){ab=ab.split(" ")[1].split(",");
+M.pv=[parseInt(ab[0],10),parseInt(ab[1],10),parseInt(ab[2],10)];}}else{if(Y<10){Y++;setTimeout(arguments.callee,10);return;}}X.removeChild(aa);Z=null;H();
+})();}else{H();}}function H(){var ag=o.length;if(ag>0){for(var af=0;af<ag;af++){var Y=o[af].id;var ab=o[af].callbackFn;var aa={success:false,id:Y};if(M.pv[0]>0){var ae=c(Y);
+if(ae){if(F(o[af].swfVersion)&&!(M.wk&&M.wk<312)){w(Y,true);if(ab){aa.success=true;aa.ref=z(Y);ab(aa);}}else{if(o[af].expressInstall&&A()){var ai={};ai.data=o[af].expressInstall;
+ai.width=ae.getAttribute("width")||"0";ai.height=ae.getAttribute("height")||"0";if(ae.getAttribute("class")){ai.styleclass=ae.getAttribute("class");}if(ae.getAttribute("align")){ai.align=ae.getAttribute("align");
+}var ah={};var X=ae.getElementsByTagName("param");var ac=X.length;for(var ad=0;ad<ac;ad++){if(X[ad].getAttribute("name").toLowerCase()!="movie"){ah[X[ad].getAttribute("name")]=X[ad].getAttribute("value");
+}}P(ai,ah,Y,ab);}else{p(ae);if(ab){ab(aa);}}}}}else{w(Y,true);if(ab){var Z=z(Y);if(Z&&typeof Z.SetVariable!=D){aa.success=true;aa.ref=Z;}ab(aa);}}}}}function z(aa){var X=null;
+var Y=c(aa);if(Y&&Y.nodeName=="OBJECT"){if(typeof Y.SetVariable!=D){X=Y;}else{var Z=Y.getElementsByTagName(r)[0];if(Z){X=Z;}}}return X;}function A(){return !a&&F("6.0.65")&&(M.win||M.mac)&&!(M.wk&&M.wk<312);
+}function P(aa,ab,X,Z){a=true;E=Z||null;B={success:false,id:X};var ae=c(X);if(ae){if(ae.nodeName=="OBJECT"){l=g(ae);Q=null;}else{l=ae;Q=X;}aa.id=R;if(typeof aa.width==D||(!/%$/.test(aa.width)&&parseInt(aa.width,10)<310)){aa.width="310";
+}if(typeof aa.height==D||(!/%$/.test(aa.height)&&parseInt(aa.height,10)<137)){aa.height="137";}j.title=j.title.slice(0,47)+" - Flash Player Installation";
+var ad=M.ie&&M.win?"ActiveX":"PlugIn",ac="MMredirectURL="+O.location.toString().replace(/&/g,"%26")+"&MMplayerType="+ad+"&MMdoctitle="+j.title;if(typeof ab.flashvars!=D){ab.flashvars+="&"+ac;
+}else{ab.flashvars=ac;}if(M.ie&&M.win&&ae.readyState!=4){var Y=C("div");X+="SWFObjectNew";Y.setAttribute("id",X);ae.parentNode.insertBefore(Y,ae);ae.style.display="none";
+(function(){if(ae.readyState==4){ae.parentNode.removeChild(ae);}else{setTimeout(arguments.callee,10);}})();}u(aa,ab,X);}}function p(Y){if(M.ie&&M.win&&Y.readyState!=4){var X=C("div");
+Y.parentNode.insertBefore(X,Y);X.parentNode.replaceChild(g(Y),X);Y.style.display="none";(function(){if(Y.readyState==4){Y.parentNode.removeChild(Y);}else{setTimeout(arguments.callee,10);
+}})();}else{Y.parentNode.replaceChild(g(Y),Y);}}function g(ab){var aa=C("div");if(M.win&&M.ie){aa.innerHTML=ab.innerHTML;}else{var Y=ab.getElementsByTagName(r)[0];
+if(Y){var ad=Y.childNodes;if(ad){var X=ad.length;for(var Z=0;Z<X;Z++){if(!(ad[Z].nodeType==1&&ad[Z].nodeName=="PARAM")&&!(ad[Z].nodeType==8)){aa.appendChild(ad[Z].cloneNode(true));
+}}}}}return aa;}function u(ai,ag,Y){var X,aa=c(Y);if(M.wk&&M.wk<312){return X;}if(aa){if(typeof ai.id==D){ai.id=Y;}if(M.ie&&M.win){var ah="";for(var ae in ai){if(ai[ae]!=Object.prototype[ae]){if(ae.toLowerCase()=="data"){ag.movie=ai[ae];
+}else{if(ae.toLowerCase()=="styleclass"){ah+=' class="'+ai[ae]+'"';}else{if(ae.toLowerCase()!="classid"){ah+=" "+ae+'="'+ai[ae]+'"';}}}}}var af="";for(var ad in ag){if(ag[ad]!=Object.prototype[ad]){af+='<param name="'+ad+'" value="'+ag[ad]+'" />';
+}}aa.outerHTML='<object classid="clsid:D27CDB6E-AE6D-11cf-96B8-444553540000"'+ah+">"+af+"</object>";N[N.length]=ai.id;X=c(ai.id);}else{var Z=C(r);Z.setAttribute("type",q);
+for(var ac in ai){if(ai[ac]!=Object.prototype[ac]){if(ac.toLowerCase()=="styleclass"){Z.setAttribute("class",ai[ac]);}else{if(ac.toLowerCase()!="classid"){Z.setAttribute(ac,ai[ac]);
+}}}}for(var ab in ag){if(ag[ab]!=Object.prototype[ab]&&ab.toLowerCase()!="movie"){e(Z,ab,ag[ab]);}}aa.parentNode.replaceChild(Z,aa);X=Z;}}return X;}function e(Z,X,Y){var aa=C("param");
+aa.setAttribute("name",X);aa.setAttribute("value",Y);Z.appendChild(aa);}function y(Y){var X=c(Y);if(X&&X.nodeName=="OBJECT"){if(M.ie&&M.win){X.style.display="none";
+(function(){if(X.readyState==4){b(Y);}else{setTimeout(arguments.callee,10);}})();}else{X.parentNode.removeChild(X);}}}function b(Z){var Y=c(Z);if(Y){for(var X in Y){if(typeof Y[X]=="function"){Y[X]=null;
+}}Y.parentNode.removeChild(Y);}}function c(Z){var X=null;try{X=j.getElementById(Z);}catch(Y){}return X;}function C(X){return j.createElement(X);}function i(Z,X,Y){Z.attachEvent(X,Y);
+I[I.length]=[Z,X,Y];}function F(Z){var Y=M.pv,X=Z.split(".");X[0]=parseInt(X[0],10);X[1]=parseInt(X[1],10)||0;X[2]=parseInt(X[2],10)||0;return(Y[0]>X[0]||(Y[0]==X[0]&&Y[1]>X[1])||(Y[0]==X[0]&&Y[1]==X[1]&&Y[2]>=X[2]))?true:false;
+}function v(ac,Y,ad,ab){if(M.ie&&M.mac){return;}var aa=j.getElementsByTagName("head")[0];if(!aa){return;}var X=(ad&&typeof ad=="string")?ad:"screen";if(ab){n=null;
+G=null;}if(!n||G!=X){var Z=C("style");Z.setAttribute("type","text/css");Z.setAttribute("media",X);n=aa.appendChild(Z);if(M.ie&&M.win&&typeof j.styleSheets!=D&&j.styleSheets.length>0){n=j.styleSheets[j.styleSheets.length-1];
+}G=X;}if(M.ie&&M.win){if(n&&typeof n.addRule==r){n.addRule(ac,Y);}}else{if(n&&typeof j.createTextNode!=D){n.appendChild(j.createTextNode(ac+" {"+Y+"}"));
+}}}function w(Z,X){if(!m){return;}var Y=X?"visible":"hidden";if(J&&c(Z)){c(Z).style.visibility=Y;}else{v("#"+Z,"visibility:"+Y);}}function L(Y){var Z=/[\\\"<>\.;]/;
+var X=Z.exec(Y)!=null;return X&&typeof encodeURIComponent!=D?encodeURIComponent(Y):Y;}var d=function(){if(M.ie&&M.win){window.attachEvent("onunload",function(){var ac=I.length;
+for(var ab=0;ab<ac;ab++){I[ab][0].detachEvent(I[ab][1],I[ab][2]);}var Z=N.length;for(var aa=0;aa<Z;aa++){y(N[aa]);}for(var Y in M){M[Y]=null;}M=null;for(var X in swfobject){swfobject[X]=null;
+}swfobject=null;});}}();return{registerObject:function(ab,X,aa,Z){if(M.w3&&ab&&X){var Y={};Y.id=ab;Y.swfVersion=X;Y.expressInstall=aa;Y.callbackFn=Z;o[o.length]=Y;
+w(ab,false);}else{if(Z){Z({success:false,id:ab});}}},getObjectById:function(X){if(M.w3){return z(X);}},embedSWF:function(ab,ah,ae,ag,Y,aa,Z,ad,af,ac){var X={success:false,id:ah};
+if(M.w3&&!(M.wk&&M.wk<312)&&ab&&ah&&ae&&ag&&Y){w(ah,false);K(function(){ae+="";ag+="";var aj={};if(af&&typeof af===r){for(var al in af){aj[al]=af[al];}}aj.data=ab;
+aj.width=ae;aj.height=ag;var am={};if(ad&&typeof ad===r){for(var ak in ad){am[ak]=ad[ak];}}if(Z&&typeof Z===r){for(var ai in Z){if(typeof am.flashvars!=D){am.flashvars+="&"+ai+"="+Z[ai];
+}else{am.flashvars=ai+"="+Z[ai];}}}if(F(Y)){var an=u(aj,am,ah);if(aj.id==ah){w(ah,true);}X.success=true;X.ref=an;}else{if(aa&&A()){aj.data=aa;P(aj,am,ah,ac);
+return;}else{w(ah,true);}}if(ac){ac(X);}});}else{if(ac){ac(X);}}},switchOffAutoHideShow:function(){m=false;},ua:M,getFlashPlayerVersion:function(){return{major:M.pv[0],minor:M.pv[1],release:M.pv[2]};
+},hasFlashPlayerVersion:F,createSWF:function(Z,Y,X){if(M.w3){return u(Z,Y,X);}else{return undefined;}},showExpressInstall:function(Z,aa,X,Y){if(M.w3&&A()){P(Z,aa,X,Y);
+}},removeSWF:function(X){if(M.w3){y(X);}},createCSS:function(aa,Z,Y,X){if(M.w3){v(aa,Z,Y,X);}},addDomLoadEvent:K,addLoadEvent:s,getQueryParamValue:function(aa){var Z=j.location.search||j.location.hash;
+if(Z){if(/\?/.test(Z)){Z=Z.split("?")[1];}if(aa==null){return L(Z);}var Y=Z.split("&");for(var X=0;X<Y.length;X++){if(Y[X].substring(0,Y[X].indexOf("="))==aa){return L(Y[X].substring((Y[X].indexOf("=")+1)));
+}}}return"";},expressInstallCallback:function(){if(a){var X=c(R);if(X&&l){X.parentNode.replaceChild(l,X);if(Q){w(Q,true);if(M.ie&&M.win){l.style.display="block";
+}}if(E){E(B);}}a=false;}}};}();
+
+/*
+SWFUpload: http://www.swfupload.org, http://swfupload.googlecode.com
+
+mmSWFUpload 1.0: Flash upload dialog - http://profandesign.se/swfupload/,  http://www.vinterwebb.se/
+
+SWFUpload is (c) 2006-2007 Lars Huring, Olov Nilzén and Mammon Media and is released under the MIT License:
+http://www.opensource.org/licenses/mit-license.php
+ 
+SWFUpload 2 is (c) 2007-2008 Jake Roberts and is released under the MIT License:
+http://www.opensource.org/licenses/mit-license.php
+*/
+
+var SWFUpload;if(SWFUpload==undefined){SWFUpload=function(a){this.initSWFUpload(a)}}SWFUpload.prototype.initSWFUpload=function(b){try{this.customSettings={};this.settings=b;this.eventQueue=[];this.movieName="SWFUpload_"+SWFUpload.movieCount++;this.movieElement=null;SWFUpload.instances[this.movieName]=this;this.initSettings();this.loadFlash();this.displayDebugInfo()}catch(a){delete SWFUpload.instances[this.movieName];throw a}};SWFUpload.instances={};SWFUpload.movieCount=0;SWFUpload.version="2.2.0 2009-03-25";SWFUpload.QUEUE_ERROR={QUEUE_LIMIT_EXCEEDED:-100,FILE_EXCEEDS_SIZE_LIMIT:-110,ZERO_BYTE_FILE:-120,INVALID_FILETYPE:-130};SWFUpload.UPLOAD_ERROR={HTTP_ERROR:-200,MISSING_UPLOAD_URL:-210,IO_ERROR:-220,SECURITY_ERROR:-230,UPLOAD_LIMIT_EXCEEDED:-240,UPLOAD_FAILED:-250,SPECIFIED_FILE_ID_NOT_FOUND:-260,FILE_VALIDATION_FAILED:-270,FILE_CANCELLED:-280,UPLOAD_STOPPED:-290};SWFUpload.FILE_STATUS={QUEUED:-1,IN_PROGRESS:-2,ERROR:-3,COMPLETE:-4,CANCELLED:-5};SWFUpload.BUTTON_ACTION={SELECT_FILE:-100,SELECT_FILES:-110,START_UPLOAD:-120};SWFUpload.CURSOR={ARROW:-1,HAND:-2};SWFUpload.WINDOW_MODE={WINDOW:"window",TRANSPARENT:"transparent",OPAQUE:"opaque"};SWFUpload.completeURL=function(a){if(typeof(a)!=="string"||a.match(/^https?:\/\//i)||a.match(/^\//)){return a}var c=window.location.protocol+"//"+window.location.hostname+(window.location.port?":"+window.location.port:"");var b=window.location.pathname.lastIndexOf("/");if(b<=0){path="/"}else{path=window.location.pathname.substr(0,b)+"/"}return path+a};SWFUpload.prototype.initSettings=function(){this.ensureDefault=function(b,a){this.settings[b]=(this.settings[b]==undefined)?a:this.settings[b]};this.ensureDefault("upload_url","");this.ensureDefault("preserve_relative_urls",false);this.ensureDefault("file_post_name","Filedata");this.ensureDefault("post_params",{});this.ensureDefault("use_query_string",false);this.ensureDefault("requeue_on_error",false);this.ensureDefault("http_success",[]);this.ensureDefault("assume_success_timeout",0);this.ensureDefault("file_types","*.*");this.ensureDefault("file_types_description","All Files");this.ensureDefault("file_size_limit",0);this.ensureDefault("file_upload_limit",0);this.ensureDefault("file_queue_limit",0);this.ensureDefault("flash_url","swfupload.swf");this.ensureDefault("prevent_swf_caching",true);this.ensureDefault("button_image_url","");this.ensureDefault("button_width",1);this.ensureDefault("button_height",1);this.ensureDefault("button_text","");this.ensureDefault("button_text_style","color: #000000; font-size: 16pt;");this.ensureDefault("button_text_top_padding",0);this.ensureDefault("button_text_left_padding",0);this.ensureDefault("button_action",SWFUpload.BUTTON_ACTION.SELECT_FILES);this.ensureDefault("button_disabled",false);this.ensureDefault("button_placeholder_id","");this.ensureDefault("button_placeholder",null);this.ensureDefault("button_cursor",SWFUpload.CURSOR.ARROW);this.ensureDefault("button_window_mode",SWFUpload.WINDOW_MODE.WINDOW);this.ensureDefault("debug",false);this.settings.debug_enabled=this.settings.debug;this.settings.return_upload_start_handler=this.returnUploadStart;this.ensureDefault("swfupload_loaded_handler",null);this.ensureDefault("file_dialog_start_handler",null);this.ensureDefault("file_queued_handler",null);this.ensureDefault("file_queue_error_handler",null);this.ensureDefault("file_dialog_complete_handler",null);this.ensureDefault("upload_start_handler",null);this.ensureDefault("upload_progress_handler",null);this.ensureDefault("upload_error_handler",null);this.ensureDefault("upload_success_handler",null);this.ensureDefault("upload_complete_handler",null);this.ensureDefault("debug_handler",this.debugMessage);this.ensureDefault("custom_settings",{});this.customSettings=this.settings.custom_settings;if(!!this.settings.prevent_swf_caching){this.settings.flash_url=this.settings.flash_url+(this.settings.flash_url.indexOf("?")<0?"?":"&")+"preventswfcaching="+new Date().getTime()}if(!this.settings.preserve_relative_urls){this.settings.upload_url=SWFUpload.completeURL(this.settings.upload_url);this.settings.button_image_url=SWFUpload.completeURL(this.settings.button_image_url)}delete this.ensureDefault};SWFUpload.prototype.loadFlash=function(){var a,b;if(document.getElementById(this.movieName)!==null){throw"ID "+this.movieName+" is already in use. The Flash Object could not be added"}a=document.getElementById(this.settings.button_placeholder_id)||this.settings.button_placeholder;if(a==undefined){throw"Could not find the placeholder element: "+this.settings.button_placeholder_id}b=document.createElement("div");b.innerHTML=this.getFlashHTML();a.parentNode.replaceChild(b.firstChild,a);if(window[this.movieName]==undefined){window[this.movieName]=this.getMovieElement()}};SWFUpload.prototype.getFlashHTML=function(){return['<object id="',this.movieName,'" type="application/x-shockwave-flash" data="',this.settings.flash_url,'" width="',this.settings.button_width,'" height="',this.settings.button_height,'" class="swfupload">','<param name="wmode" value="',this.settings.button_window_mode,'" />','<param name="movie" value="',this.settings.flash_url,'" />','<param name="quality" value="high" />','<param name="menu" value="false" />','<param name="allowScriptAccess" value="always" />','<param name="flashvars" value="'+this.getFlashVars()+'" />',"</object>"].join("")};SWFUpload.prototype.getFlashVars=function(){var b=this.buildParamString();var a=this.settings.http_success.join(",");return["movieName=",encodeURIComponent(this.movieName),"&amp;uploadURL=",encodeURIComponent(this.settings.upload_url),"&amp;useQueryString=",encodeURIComponent(this.settings.use_query_string),"&amp;requeueOnError=",encodeURIComponent(this.settings.requeue_on_error),"&amp;httpSuccess=",encodeURIComponent(a),"&amp;assumeSuccessTimeout=",encodeURIComponent(this.settings.assume_success_timeout),"&amp;params=",encodeURIComponent(b),"&amp;filePostName=",encodeURIComponent(this.settings.file_post_name),"&amp;fileTypes=",encodeURIComponent(this.settings.file_types),"&amp;fileTypesDescription=",encodeURIComponent(this.settings.file_types_description),"&amp;fileSizeLimit=",encodeURIComponent(this.settings.file_size_limit),"&amp;fileUploadLimit=",encodeURIComponent(this.settings.file_upload_limit),"&amp;fileQueueLimit=",encodeURIComponent(this.settings.file_queue_limit),"&amp;debugEnabled=",encodeURIComponent(this.settings.debug_enabled),"&amp;buttonImageURL=",encodeURIComponent(this.settings.button_image_url),"&amp;buttonWidth=",encodeURIComponent(this.settings.button_width),"&amp;buttonHeight=",encodeURIComponent(this.settings.button_height),"&amp;buttonText=",encodeURIComponent(this.settings.button_text),"&amp;buttonTextTopPadding=",encodeURIComponent(this.settings.button_text_top_padding),"&amp;buttonTextLeftPadding=",encodeURIComponent(this.settings.button_text_left_padding),"&amp;buttonTextStyle=",encodeURIComponent(this.settings.button_text_style),"&amp;buttonAction=",encodeURIComponent(this.settings.button_action),"&amp;buttonDisabled=",encodeURIComponent(this.settings.button_disabled),"&amp;buttonCursor=",encodeURIComponent(this.settings.button_cursor)].join("")};SWFUpload.prototype.getMovieElement=function(){if(this.movieElement==undefined){this.movieElement=document.getElementById(this.movieName)}if(this.movieElement===null){throw"Could not find Flash element"}return this.movieElement};SWFUpload.prototype.buildParamString=function(){var c=this.settings.post_params;var b=[];if(typeof(c)==="object"){for(var a in c){if(c.hasOwnProperty(a)){b.push(encodeURIComponent(a.toString())+"="+encodeURIComponent(c[a].toString()))}}}return b.join("&amp;")};SWFUpload.prototype.destroy=function(){try{this.cancelUpload(null,false);var a=null;a=this.getMovieElement();if(a&&typeof(a.CallFunction)==="unknown"){for(var c in a){try{if(typeof(a[c])==="function"){a[c]=null}}catch(e){}}try{a.parentNode.removeChild(a)}catch(b){}}window[this.movieName]=null;SWFUpload.instances[this.movieName]=null;delete SWFUpload.instances[this.movieName];this.movieElement=null;this.settings=null;this.customSettings=null;this.eventQueue=null;this.movieName=null;return true}catch(d){return false}};SWFUpload.prototype.displayDebugInfo=function(){this.debug(["---SWFUpload Instance Info---\n","Version: ",SWFUpload.version,"\n","Movie Name: ",this.movieName,"\n","Settings:\n","\t","upload_url:               ",this.settings.upload_url,"\n","\t","flash_url:                ",this.settings.flash_url,"\n","\t","use_query_string:         ",this.settings.use_query_string.toString(),"\n","\t","requeue_on_error:         ",this.settings.requeue_on_error.toString(),"\n","\t","http_success:             ",this.settings.http_success.join(", "),"\n","\t","assume_success_timeout:   ",this.settings.assume_success_timeout,"\n","\t","file_post_name:           ",this.settings.file_post_name,"\n","\t","post_params:              ",this.settings.post_params.toString(),"\n","\t","file_types:               ",this.settings.file_types,"\n","\t","file_types_description:   ",this.settings.file_types_description,"\n","\t","file_size_limit:          ",this.settings.file_size_limit,"\n","\t","file_upload_limit:        ",this.settings.file_upload_limit,"\n","\t","file_queue_limit:         ",this.settings.file_queue_limit,"\n","\t","debug:                    ",this.settings.debug.toString(),"\n","\t","prevent_swf_caching:      ",this.settings.prevent_swf_caching.toString(),"\n","\t","button_placeholder_id:    ",this.settings.button_placeholder_id.toString(),"\n","\t","button_placeholder:       ",(this.settings.button_placeholder?"Set":"Not Set"),"\n","\t","button_image_url:         ",this.settings.button_image_url.toString(),"\n","\t","button_width:             ",this.settings.button_width.toString(),"\n","\t","button_height:            ",this.settings.button_height.toString(),"\n","\t","button_text:              ",this.settings.button_text.toString(),"\n","\t","button_text_style:        ",this.settings.button_text_style.toString(),"\n","\t","button_text_top_padding:  ",this.settings.button_text_top_padding.toString(),"\n","\t","button_text_left_padding: ",this.settings.button_text_left_padding.toString(),"\n","\t","button_action:            ",this.settings.button_action.toString(),"\n","\t","button_disabled:          ",this.settings.button_disabled.toString(),"\n","\t","custom_settings:          ",this.settings.custom_settings.toString(),"\n","Event Handlers:\n","\t","swfupload_loaded_handler assigned:  ",(typeof this.settings.swfupload_loaded_handler==="function").toString(),"\n","\t","file_dialog_start_handler assigned: ",(typeof this.settings.file_dialog_start_handler==="function").toString(),"\n","\t","file_queued_handler assigned:       ",(typeof this.settings.file_queued_handler==="function").toString(),"\n","\t","file_queue_error_handler assigned:  ",(typeof this.settings.file_queue_error_handler==="function").toString(),"\n","\t","upload_start_handler assigned:      ",(typeof this.settings.upload_start_handler==="function").toString(),"\n","\t","upload_progress_handler assigned:   ",(typeof this.settings.upload_progress_handler==="function").toString(),"\n","\t","upload_error_handler assigned:      ",(typeof this.settings.upload_error_handler==="function").toString(),"\n","\t","upload_success_handler assigned:    ",(typeof this.settings.upload_success_handler==="function").toString(),"\n","\t","upload_complete_handler assigned:   ",(typeof this.settings.upload_complete_handler==="function").toString(),"\n","\t","debug_handler assigned:             ",(typeof this.settings.debug_handler==="function").toString(),"\n"].join(""))};SWFUpload.prototype.addSetting=function(b,c,a){if(c==undefined){return(this.settings[b]=a)}else{return(this.settings[b]=c)}};SWFUpload.prototype.getSetting=function(a){if(this.settings[a]!=undefined){return this.settings[a]}return""};SWFUpload.prototype.callFlash=function(functionName,argumentArray){argumentArray=argumentArray||[];var movieElement=this.getMovieElement();var returnValue,returnString;try{returnString=movieElement.CallFunction('<invoke name="'+functionName+'" returntype="javascript">'+__flash__argumentsToXML(argumentArray,0)+"</invoke>");returnValue=eval(returnString)}catch(ex){throw"Call to "+functionName+" failed"}if(returnValue!=undefined&&typeof returnValue.post==="object"){returnValue=this.unescapeFilePostParams(returnValue)}return returnValue};SWFUpload.prototype.selectFile=function(){this.callFlash("SelectFile")};SWFUpload.prototype.selectFiles=function(){this.callFlash("SelectFiles")};SWFUpload.prototype.startUpload=function(a){this.callFlash("StartUpload",[a])};SWFUpload.prototype.cancelUpload=function(a,b){if(b!==false){b=true}this.callFlash("CancelUpload",[a,b])};SWFUpload.prototype.stopUpload=function(){this.callFlash("StopUpload")};SWFUpload.prototype.getStats=function(){return this.callFlash("GetStats")};SWFUpload.prototype.setStats=function(a){this.callFlash("SetStats",[a])};SWFUpload.prototype.getFile=function(a){if(typeof(a)==="number"){return this.callFlash("GetFileByIndex",[a])}else{return this.callFlash("GetFile",[a])}};SWFUpload.prototype.addFileParam=function(a,b,c){return this.callFlash("AddFileParam",[a,b,c])};SWFUpload.prototype.removeFileParam=function(a,b){this.callFlash("RemoveFileParam",[a,b])};SWFUpload.prototype.setUploadURL=function(a){this.settings.upload_url=a.toString();this.callFlash("SetUploadURL",[a])};SWFUpload.prototype.setPostParams=function(a){this.settings.post_params=a;this.callFlash("SetPostParams",[a])};SWFUpload.prototype.addPostParam=function(a,b){this.settings.post_params[a]=b;this.callFlash("SetPostParams",[this.settings.post_params])};SWFUpload.prototype.removePostParam=function(a){delete this.settings.post_params[a];this.callFlash("SetPostParams",[this.settings.post_params])};SWFUpload.prototype.setFileTypes=function(a,b){this.settings.file_types=a;this.settings.file_types_description=b;this.callFlash("SetFileTypes",[a,b])};SWFUpload.prototype.setFileSizeLimit=function(a){this.settings.file_size_limit=a;this.callFlash("SetFileSizeLimit",[a])};SWFUpload.prototype.setFileUploadLimit=function(a){this.settings.file_upload_limit=a;this.callFlash("SetFileUploadLimit",[a])};SWFUpload.prototype.setFileQueueLimit=function(a){this.settings.file_queue_limit=a;this.callFlash("SetFileQueueLimit",[a])};SWFUpload.prototype.setFilePostName=function(a){this.settings.file_post_name=a;this.callFlash("SetFilePostName",[a])};SWFUpload.prototype.setUseQueryString=function(a){this.settings.use_query_string=a;this.callFlash("SetUseQueryString",[a])};SWFUpload.prototype.setRequeueOnError=function(a){this.settings.requeue_on_error=a;this.callFlash("SetRequeueOnError",[a])};SWFUpload.prototype.setHTTPSuccess=function(a){if(typeof a==="string"){a=a.replace(" ","").split(",")}this.settings.http_success=a;this.callFlash("SetHTTPSuccess",[a])};SWFUpload.prototype.setAssumeSuccessTimeout=function(a){this.settings.assume_success_timeout=a;this.callFlash("SetAssumeSuccessTimeout",[a])};SWFUpload.prototype.setDebugEnabled=function(a){this.settings.debug_enabled=a;this.callFlash("SetDebugEnabled",[a])};SWFUpload.prototype.setButtonImageURL=function(a){if(a==undefined){a=""}this.settings.button_image_url=a;this.callFlash("SetButtonImageURL",[a])};SWFUpload.prototype.setButtonDimensions=function(c,a){this.settings.button_width=c;this.settings.button_height=a;var b=this.getMovieElement();if(b!=undefined){b.style.width=c+"px";b.style.height=a+"px"}this.callFlash("SetButtonDimensions",[c,a])};SWFUpload.prototype.setButtonText=function(a){this.settings.button_text=a;this.callFlash("SetButtonText",[a])};SWFUpload.prototype.setButtonTextPadding=function(b,a){this.settings.button_text_top_padding=a;this.settings.button_text_left_padding=b;this.callFlash("SetButtonTextPadding",[b,a])};SWFUpload.prototype.setButtonTextStyle=function(a){this.settings.button_text_style=a;this.callFlash("SetButtonTextStyle",[a])};SWFUpload.prototype.setButtonDisabled=function(a){this.settings.button_disabled=a;this.callFlash("SetButtonDisabled",[a])};SWFUpload.prototype.setButtonAction=function(a){this.settings.button_action=a;this.callFlash("SetButtonAction",[a])};SWFUpload.prototype.setButtonCursor=function(a){this.settings.button_cursor=a;this.callFlash("SetButtonCursor",[a])};SWFUpload.prototype.queueEvent=function(b,c){if(c==undefined){c=[]}else{if(!(c instanceof Array)){c=[c]}}var a=this;if(typeof this.settings[b]==="function"){this.eventQueue.push(function(){this.settings[b].apply(this,c)});setTimeout(function(){a.executeNextEvent()},0)}else{if(this.settings[b]!==null){throw"Event handler "+b+" is unknown or is not a function"}}};SWFUpload.prototype.executeNextEvent=function(){var a=this.eventQueue?this.eventQueue.shift():null;if(typeof(a)==="function"){a.apply(this)}};SWFUpload.prototype.unescapeFilePostParams=function(c){var e=/[$]([0-9a-f]{4})/i;var f={};var d;if(c!=undefined){for(var a in c.post){if(c.post.hasOwnProperty(a)){d=a;var b;while((b=e.exec(d))!==null){d=d.replace(b[0],String.fromCharCode(parseInt("0x"+b[1],16)))}f[d]=c.post[a]}}c.post=f}return c};SWFUpload.prototype.testExternalInterface=function(){try{return this.callFlash("TestExternalInterface")}catch(a){return false}};SWFUpload.prototype.flashReady=function(){var a=this.getMovieElement();if(!a){this.debug("Flash called back ready but the flash movie can't be found.");return}this.cleanUp(a);this.queueEvent("swfupload_loaded_handler")};SWFUpload.prototype.cleanUp=function(a){try{if(this.movieElement&&typeof(a.CallFunction)==="unknown"){this.debug("Removing Flash functions hooks (this should only run in IE and should prevent memory leaks)");for(var c in a){try{if(typeof(a[c])==="function"){a[c]=null}}catch(b){}}}}catch(d){}window.__flash__removeCallback=function(e,f){try{if(e){e[f]=null}}catch(g){}}};SWFUpload.prototype.fileDialogStart=function(){this.queueEvent("file_dialog_start_handler")};SWFUpload.prototype.fileQueued=function(a){a=this.unescapeFilePostParams(a);this.queueEvent("file_queued_handler",a)};SWFUpload.prototype.fileQueueError=function(a,c,b){a=this.unescapeFilePostParams(a);this.queueEvent("file_queue_error_handler",[a,c,b])};SWFUpload.prototype.fileDialogComplete=function(b,c,a){this.queueEvent("file_dialog_complete_handler",[b,c,a])};SWFUpload.prototype.uploadStart=function(a){a=this.unescapeFilePostParams(a);this.queueEvent("return_upload_start_handler",a)};SWFUpload.prototype.returnUploadStart=function(a){var b;if(typeof this.settings.upload_start_handler==="function"){a=this.unescapeFilePostParams(a);b=this.settings.upload_start_handler.call(this,a)}else{if(this.settings.upload_start_handler!=undefined){throw"upload_start_handler must be a function"}}if(b===undefined){b=true}b=!!b;this.callFlash("ReturnUploadStart",[b])};SWFUpload.prototype.uploadProgress=function(a,c,b){a=this.unescapeFilePostParams(a);this.queueEvent("upload_progress_handler",[a,c,b])};SWFUpload.prototype.uploadError=function(a,c,b){a=this.unescapeFilePostParams(a);this.queueEvent("upload_error_handler",[a,c,b])};SWFUpload.prototype.uploadSuccess=function(b,a,c){b=this.unescapeFilePostParams(b);this.queueEvent("upload_success_handler",[b,a,c])};SWFUpload.prototype.uploadComplete=function(a){a=this.unescapeFilePostParams(a);this.queueEvent("upload_complete_handler",a)};SWFUpload.prototype.debug=function(a){this.queueEvent("debug_handler",a)};SWFUpload.prototype.debugMessage=function(c){if(this.settings.debug){var a,d=[];if(typeof c==="object"&&typeof c.name==="string"&&typeof c.message==="string"){for(var b in c){if(c.hasOwnProperty(b)){d.push(b+": "+c[b])}}a=d.join("\n")||"";d=a.split("\n");a="EXCEPTION: "+d.join("\nEXCEPTION: ");SWFUpload.Console.writeLine(a)}else{SWFUpload.Console.writeLine(c)}}};SWFUpload.Console={};SWFUpload.Console.writeLine=function(d){var b,a;try{b=document.getElementById("SWFUpload_Console");if(!b){a=document.createElement("form");document.getElementsByTagName("body")[0].appendChild(a);b=document.createElement("textarea");b.id="SWFUpload_Console";b.style.fontFamily="monospace";b.setAttribute("wrap","off");b.wrap="off";b.style.overflow="auto";b.style.width="700px";b.style.height="350px";b.style.margin="5px";a.appendChild(b)}b.value+=d+"\n";b.scrollTop=b.scrollHeight-b.clientHeight}catch(c){alert("Exception: "+c.name+" Message: "+c.message)}};
+
+/*
+Uploadify v3.2.1
+Copyright (c) 2012 Reactive Apps, Ronnie Garcia
+Released under the MIT License <http://www.opensource.org/licenses/mit-license.php> 
+*/
+
+(function($) {
+
+	// These methods can be called by adding them as the first argument in the uploadify plugin call
+	var methods = {
+
+		init : function(options, swfUploadOptions) {
+			
+			return this.each(function() {
+
+				// Create a reference to the jQuery DOM object
+				var $this = $(this);
+
+				// Clone the original DOM object
+				var $clone = $this.clone();
+
+				// Setup the default options
+				var settings = $.extend({
+					// Required Settings
+					id       : $this.attr('id'), // The ID of the DOM object
+					swf      : 'uploadify.swf',  // The path to the uploadify SWF file
+					uploader : 'uploadify.php',  // The path to the server-side upload script
+					
+					// Options
+					auto            : true,               // Automatically upload files when added to the queue
+					buttonClass     : '',                 // A class name to add to the browse button DOM object
+					buttonCursor    : 'hand',             // The cursor to use with the browse button
+					buttonImage     : null,               // (String or null) The path to an image to use for the Flash browse button if not using CSS to style the button
+					buttonText      : 'SELECT FILES',     // The text to use for the browse button
+					checkExisting   : false,              // The path to a server-side script that checks for existing files on the server
+					debug           : false,              // Turn on swfUpload debugging mode
+					fileObjName     : 'Filedata',         // The name of the file object to use in your server-side script
+					fileSizeLimit   : 0,                  // The maximum size of an uploadable file in KB (Accepts units B KB MB GB if string, 0 for no limit)
+					fileTypeDesc    : 'All Files',        // The description for file types in the browse dialog
+					fileTypeExts    : '*.*',              // Allowed extensions in the browse dialog (server-side validation should also be used)
+					height          : 30,                 // The height of the browse button
+					itemTemplate    : false,              // The template for the file item in the queue
+					method          : 'post',             // The method to use when sending files to the server-side upload script
+					multi           : true,               // Allow multiple file selection in the browse dialog
+					formData        : {},                 // An object with additional data to send to the server-side upload script with every file upload
+					preventCaching  : true,               // Adds a random value to the Flash URL to prevent caching of it (conflicts with existing parameters)
+					progressData    : 'percentage',       // ('percentage' or 'speed') Data to show in the queue item during a file upload
+					queueID         : false,              // The ID of the DOM object to use as a file queue (without the #)
+					queueSizeLimit  : 999,                // The maximum number of files that can be in the queue at one time
+					removeCompleted : true,               // Remove queue items from the queue when they are done uploading
+					removeTimeout   : 3,                  // The delay in seconds before removing a queue item if removeCompleted is set to true
+					requeueErrors   : false,              // Keep errored files in the queue and keep trying to upload them
+					successTimeout  : 30,                 // The number of seconds to wait for Flash to detect the server's response after the file has finished uploading
+					uploadLimit     : 0,                  // The maximum number of files you can upload
+					width           : 120,                // The width of the browse button
+					
+					// Events
+					overrideEvents  : []             // (Array) A list of default event handlers to skip
+					/*
+					onCancel         // Triggered when a file is cancelled from the queue
+					onClearQueue     // Triggered during the 'clear queue' method
+					onDestroy        // Triggered when the uploadify object is destroyed
+					onDialogClose    // Triggered when the browse dialog is closed
+					onDialogOpen     // Triggered when the browse dialog is opened
+					onDisable        // Triggered when the browse button gets disabled
+					onEnable         // Triggered when the browse button gets enabled
+					onFallback       // Triggered is Flash is not detected    
+					onInit           // Triggered when Uploadify is initialized
+					onQueueComplete  // Triggered when all files in the queue have been uploaded
+					onSelectError    // Triggered when an error occurs while selecting a file (file size, queue size limit, etc.)
+					onSelect         // Triggered for each file that is selected
+					onSWFReady       // Triggered when the SWF button is loaded
+					onUploadComplete // Triggered when a file upload completes (success or error)
+					onUploadError    // Triggered when a file upload returns an error
+					onUploadSuccess  // Triggered when a file is uploaded successfully
+					onUploadProgress // Triggered every time a file progress is updated
+					onUploadStart    // Triggered immediately before a file upload starts
+					*/
+				}, options);
+
+				// Prepare settings for SWFUpload
+				var swfUploadSettings = {
+					assume_success_timeout   : settings.successTimeout,
+					button_placeholder_id    : settings.id,
+					button_width             : settings.width,
+					button_height            : settings.height,
+					button_text              : null,
+					button_text_style        : null,
+					button_text_top_padding  : 0,
+					button_text_left_padding : 0,
+					button_action            : (settings.multi ? SWFUpload.BUTTON_ACTION.SELECT_FILES : SWFUpload.BUTTON_ACTION.SELECT_FILE),
+					button_disabled          : false,
+					button_cursor            : (settings.buttonCursor == 'arrow' ? SWFUpload.CURSOR.ARROW : SWFUpload.CURSOR.HAND),
+					button_window_mode       : SWFUpload.WINDOW_MODE.TRANSPARENT,
+					debug                    : settings.debug,						
+					requeue_on_error         : settings.requeueErrors,
+					file_post_name           : settings.fileObjName,
+					file_size_limit          : settings.fileSizeLimit,
+					file_types               : settings.fileTypeExts,
+					file_types_description   : settings.fileTypeDesc,
+					file_queue_limit         : settings.queueSizeLimit,
+					file_upload_limit        : settings.uploadLimit,
+					flash_url                : settings.swf,					
+					prevent_swf_caching      : settings.preventCaching,
+					post_params              : settings.formData,
+					upload_url               : settings.uploader,
+					use_query_string         : (settings.method == 'get'),
+					
+					// Event Handlers 
+					file_dialog_complete_handler : handlers.onDialogClose,
+					file_dialog_start_handler    : handlers.onDialogOpen,
+					file_queued_handler          : handlers.onSelect,
+					file_queue_error_handler     : handlers.onSelectError,
+					swfupload_loaded_handler     : settings.onSWFReady,
+					upload_complete_handler      : handlers.onUploadComplete,
+					upload_error_handler         : handlers.onUploadError,
+					upload_progress_handler      : handlers.onUploadProgress,
+					upload_start_handler         : handlers.onUploadStart,
+					upload_success_handler       : handlers.onUploadSuccess
+				}
+
+				// Merge the user-defined options with the defaults
+				if (swfUploadOptions) {
+					swfUploadSettings = $.extend(swfUploadSettings, swfUploadOptions);
+				}
+				// Add the user-defined settings to the swfupload object
+				swfUploadSettings = $.extend(swfUploadSettings, settings);
+				
+				// Detect if Flash is available
+				var playerVersion  = swfobject.getFlashPlayerVersion();
+				var flashInstalled = (playerVersion.major >= 9);
+
+				if (flashInstalled) {
+					// Create the swfUpload instance
+					window['uploadify_' + settings.id] = new SWFUpload(swfUploadSettings);
+					var swfuploadify = window['uploadify_' + settings.id];
+
+					// Add the SWFUpload object to the elements data object
+					$this.data('uploadify', swfuploadify);
+					
+					// Wrap the instance
+					var $wrapper = $('<div />', {
+						'id'    : settings.id,
+						'class' : 'uploadify',
+						'css'   : {
+									'height'   : settings.height + 'px',
+									'width'    : settings.width + 'px'
+								  }
+					});
+					$('#' + swfuploadify.movieName).wrap($wrapper);
+					// Recreate the reference to wrapper
+					$wrapper = $('#' + settings.id);
+					// Add the data object to the wrapper 
+					$wrapper.data('uploadify', swfuploadify);
+
+					// Create the button
+					var $button = $('<div />', {
+						'id'    : settings.id + '-button',
+						'class' : 'uploadify-button ' + settings.buttonClass
+					});
+					if (settings.buttonImage) {
+						$button.css({
+							'background-image' : "url('" + settings.buttonImage + "')",
+							'text-indent'      : '-9999px'
+						});
+					}
+					$button.html('<span class="uploadify-button-text">' + settings.buttonText + '</span>')
+					.css({
+						'height'      : settings.height + 'px',
+						'line-height' : settings.height + 'px',
+						'width'       : settings.width + 'px'
+					});
+					// Append the button to the wrapper
+					$wrapper.append($button);
+
+					// Adjust the styles of the movie
+					$('#' + swfuploadify.movieName).css({
+						'position' : 'absolute',
+						'z-index'  : 1
+					});
+					
+					// Create the file queue
+					if (!settings.queueID) {
+						var $queue = $('<div />', {
+							'id'    : settings.id + '-queue',
+							'class' : 'uploadify-queue'
+						});
+						$wrapper.after($queue);
+						swfuploadify.settings.queueID      = settings.id + '-queue';
+						swfuploadify.settings.defaultQueue = true;
+					}
+					
+					// Create some queue related objects and variables
+					swfuploadify.queueData = {
+						files              : {}, // The files in the queue
+						filesSelected      : 0, // The number of files selected in the last select operation
+						filesQueued        : 0, // The number of files added to the queue in the last select operation
+						filesReplaced      : 0, // The number of files replaced in the last select operation
+						filesCancelled     : 0, // The number of files that were cancelled instead of replaced
+						filesErrored       : 0, // The number of files that caused error in the last select operation
+						uploadsSuccessful  : 0, // The number of files that were successfully uploaded
+						uploadsErrored     : 0, // The number of files that returned errors during upload
+						averageSpeed       : 0, // The average speed of the uploads in KB
+						queueLength        : 0, // The number of files in the queue
+						queueSize          : 0, // The size in bytes of the entire queue
+						uploadSize         : 0, // The size in bytes of the upload queue
+						queueBytesUploaded : 0, // The size in bytes that have been uploaded for the current upload queue
+						uploadQueue        : [], // The files currently to be uploaded
+						errorMsg           : 'Some files were not added to the queue:'
+					};
+
+					// Save references to all the objects
+					swfuploadify.original = $clone;
+					swfuploadify.wrapper  = $wrapper;
+					swfuploadify.button   = $button;
+					swfuploadify.queue    = $queue;
+
+					// Call the user-defined init event handler
+					if (settings.onInit) settings.onInit.call($this, swfuploadify);
+
+				} else {
+
+					// Call the fallback function
+					if (settings.onFallback) settings.onFallback.call($this);
+
+				}
+			});
+
+		},
+
+		// Stop a file upload and remove it from the queue 
+		cancel : function(fileID, supressEvent) {
+
+			var args = arguments;
+
+			this.each(function() {
+				// Create a reference to the jQuery DOM object
+				var $this        = $(this),
+					swfuploadify = $this.data('uploadify'),
+					settings     = swfuploadify.settings,
+					delay        = -1;
+
+				if (args[0]) {
+					// Clear the queue
+					if (args[0] == '*') {
+						var queueItemCount = swfuploadify.queueData.queueLength;
+						$('#' + settings.queueID).find('.uploadify-queue-item').each(function() {
+							delay++;
+							if (args[1] === true) {
+								swfuploadify.cancelUpload($(this).attr('id'), false);
+							} else {
+								swfuploadify.cancelUpload($(this).attr('id'));
+							}
+							$(this).find('.data').removeClass('data').html(' - Cancelled');
+							$(this).find('.uploadify-progress-bar').remove();
+							$(this).delay(1000 + 100 * delay).fadeOut(500, function() {
+								$(this).remove();
+							});
+						});
+						swfuploadify.queueData.queueSize   = 0;
+						swfuploadify.queueData.queueLength = 0;
+						// Trigger the onClearQueue event
+						if (settings.onClearQueue) settings.onClearQueue.call($this, queueItemCount);
+					} else {
+						for (var n = 0; n < args.length; n++) {
+							swfuploadify.cancelUpload(args[n]);
+							$('#' + args[n]).find('.data').removeClass('data').html(' - Cancelled');
+							$('#' + args[n]).find('.uploadify-progress-bar').remove();
+							$('#' + args[n]).delay(1000 + 100 * n).fadeOut(500, function() {
+								$(this).remove();
+							});
+						}
+					}
+				} else {
+					var item = $('#' + settings.queueID).find('.uploadify-queue-item').get(0);
+					$item = $(item);
+					swfuploadify.cancelUpload($item.attr('id'));
+					$item.find('.data').removeClass('data').html(' - Cancelled');
+					$item.find('.uploadify-progress-bar').remove();
+					$item.delay(1000).fadeOut(500, function() {
+						$(this).remove();
+					});
+				}
+			});
+
+		},
+
+		// Revert the DOM object back to its original state
+		destroy : function() {
+
+			this.each(function() {
+				// Create a reference to the jQuery DOM object
+				var $this        = $(this),
+					swfuploadify = $this.data('uploadify'),
+					settings     = swfuploadify.settings;
+
+				// Destroy the SWF object and 
+				swfuploadify.destroy();
+				
+				// Destroy the queue
+				if (settings.defaultQueue) {
+					$('#' + settings.queueID).remove();
+				}
+				
+				// Reload the original DOM element
+				$('#' + settings.id).replaceWith(swfuploadify.original);
+
+				// Call the user-defined event handler
+				if (settings.onDestroy) settings.onDestroy.call(this);
+
+				delete swfuploadify;
+			});
+
+		},
+
+		// Disable the select button
+		disable : function(isDisabled) {
+			
+			this.each(function() {
+				// Create a reference to the jQuery DOM object
+				var $this        = $(this),
+					swfuploadify = $this.data('uploadify'),
+					settings     = swfuploadify.settings;
+
+				// Call the user-defined event handlers
+				if (isDisabled) {
+					swfuploadify.button.addClass('disabled');
+					if (settings.onDisable) settings.onDisable.call(this);
+				} else {
+					swfuploadify.button.removeClass('disabled');
+					if (settings.onEnable) settings.onEnable.call(this);
+				}
+
+				// Enable/disable the browse button
+				swfuploadify.setButtonDisabled(isDisabled);
+			});
+
+		},
+
+		// Get or set the settings data
+		settings : function(name, value, resetObjects) {
+
+			var args        = arguments;
+			var returnValue = value;
+
+			this.each(function() {
+				// Create a reference to the jQuery DOM object
+				var $this        = $(this),
+					swfuploadify = $this.data('uploadify'),
+					settings     = swfuploadify.settings;
+
+				if (typeof(args[0]) == 'object') {
+					for (var n in value) {
+						setData(n,value[n]);
+					}
+				}
+				if (args.length === 1) {
+					returnValue =  settings[name];
+				} else {
+					switch (name) {
+						case 'uploader':
+							swfuploadify.setUploadURL(value);
+							break;
+						case 'formData':
+							if (!resetObjects) {
+								value = $.extend(settings.formData, value);
+							}
+							swfuploadify.setPostParams(settings.formData);
+							break;
+						case 'method':
+							if (value == 'get') {
+								swfuploadify.setUseQueryString(true);
+							} else {
+								swfuploadify.setUseQueryString(false);
+							}
+							break;
+						case 'fileObjName':
+							swfuploadify.setFilePostName(value);
+							break;
+						case 'fileTypeExts':
+							swfuploadify.setFileTypes(value, settings.fileTypeDesc);
+							break;
+						case 'fileTypeDesc':
+							swfuploadify.setFileTypes(settings.fileTypeExts, value);
+							break;
+						case 'fileSizeLimit':
+							swfuploadify.setFileSizeLimit(value);
+							break;
+						case 'uploadLimit':
+							swfuploadify.setFileUploadLimit(value);
+							break;
+						case 'queueSizeLimit':
+							swfuploadify.setFileQueueLimit(value);
+							break;
+						case 'buttonImage':
+							swfuploadify.button.css('background-image', settingValue);
+							break;
+						case 'buttonCursor':
+							if (value == 'arrow') {
+								swfuploadify.setButtonCursor(SWFUpload.CURSOR.ARROW);
+							} else {
+								swfuploadify.setButtonCursor(SWFUpload.CURSOR.HAND);
+							}
+							break;
+						case 'buttonText':
+							$('#' + settings.id + '-button').find('.uploadify-button-text').html(value);
+							break;
+						case 'width':
+							swfuploadify.setButtonDimensions(value, settings.height);
+							break;
+						case 'height':
+							swfuploadify.setButtonDimensions(settings.width, value);
+							break;
+						case 'multi':
+							if (value) {
+								swfuploadify.setButtonAction(SWFUpload.BUTTON_ACTION.SELECT_FILES);
+							} else {
+								swfuploadify.setButtonAction(SWFUpload.BUTTON_ACTION.SELECT_FILE);
+							}
+							break;
+					}
+					settings[name] = value;
+				}
+			});
+			
+			if (args.length === 1) {
+				return returnValue;
+			}
+
+		},
+
+		// Stop the current uploads and requeue what is in progress
+		stop : function() {
+
+			this.each(function() {
+				// Create a reference to the jQuery DOM object
+				var $this        = $(this),
+					swfuploadify = $this.data('uploadify');
+
+				// Reset the queue information
+				swfuploadify.queueData.averageSpeed  = 0;
+				swfuploadify.queueData.uploadSize    = 0;
+				swfuploadify.queueData.bytesUploaded = 0;
+				swfuploadify.queueData.uploadQueue   = [];
+
+				swfuploadify.stopUpload();
+			});
+
+		},
+
+		// Start uploading files in the queue
+		upload : function() {
+
+			var args = arguments;
+
+			this.each(function() {
+				// Create a reference to the jQuery DOM object
+				var $this        = $(this),
+					swfuploadify = $this.data('uploadify');
+
+				// Reset the queue information
+				swfuploadify.queueData.averageSpeed  = 0;
+				swfuploadify.queueData.uploadSize    = 0;
+				swfuploadify.queueData.bytesUploaded = 0;
+				swfuploadify.queueData.uploadQueue   = [];
+				
+				// Upload the files
+				if (args[0]) {
+					if (args[0] == '*') {
+						swfuploadify.queueData.uploadSize = swfuploadify.queueData.queueSize;
+						swfuploadify.queueData.uploadQueue.push('*');
+						swfuploadify.startUpload();
+					} else {
+						for (var n = 0; n < args.length; n++) {
+							swfuploadify.queueData.uploadSize += swfuploadify.queueData.files[args[n]].size;
+							swfuploadify.queueData.uploadQueue.push(args[n]);
+						}
+						swfuploadify.startUpload(swfuploadify.queueData.uploadQueue.shift());
+					}
+				} else {
+					swfuploadify.startUpload();
+				}
+
+			});
+
+		}
+
+	}
+
+	// These functions handle all the events that occur with the file uploader
+	var handlers = {
+
+		// Triggered when the file dialog is opened
+		onDialogOpen : function() {
+			// Load the swfupload settings
+			var settings = this.settings;
+
+			// Reset some queue info
+			this.queueData.errorMsg       = 'Some files were not added to the queue:';
+			this.queueData.filesReplaced  = 0;
+			this.queueData.filesCancelled = 0;
+
+			// Call the user-defined event handler
+			if (settings.onDialogOpen) settings.onDialogOpen.call(this);
+		},
+
+		// Triggered when the browse dialog is closed
+		onDialogClose :  function(filesSelected, filesQueued, queueLength) {
+			// Load the swfupload settings
+			var settings = this.settings;
+
+			// Update the queue information
+			this.queueData.filesErrored  = filesSelected - filesQueued;
+			this.queueData.filesSelected = filesSelected;
+			this.queueData.filesQueued   = filesQueued - this.queueData.filesCancelled;
+			this.queueData.queueLength   = queueLength;
+
+			// Run the default event handler
+			if ($.inArray('onDialogClose', settings.overrideEvents) < 0) {
+				if (this.queueData.filesErrored > 0) {
+					alert(this.queueData.errorMsg);
+				}
+			}
+
+			// Call the user-defined event handler
+			if (settings.onDialogClose) settings.onDialogClose.call(this, this.queueData);
+
+			// Upload the files if auto is true
+			if (settings.auto) $('#' + settings.id).uploadify('upload', '*');
+		},
+
+		// Triggered once for each file added to the queue
+		onSelect : function(file) {
+			// Load the swfupload settings
+			var settings = this.settings;
+
+			// Check if a file with the same name exists in the queue
+			var queuedFile = {};
+			for (var n in this.queueData.files) {
+				queuedFile = this.queueData.files[n];
+				if (queuedFile.uploaded != true && queuedFile.name == file.name) {
+					var replaceQueueItem = confirm('The file named "' + file.name + '" is already in the queue.\nDo you want to replace the existing item in the queue?');
+					if (!replaceQueueItem) {
+						this.cancelUpload(file.id);
+						this.queueData.filesCancelled++;
+						return false;
+					} else {
+						$('#' + queuedFile.id).remove();
+						this.cancelUpload(queuedFile.id);
+						this.queueData.filesReplaced++;
+					}
+				}
+			}
+
+			// Get the size of the file
+			var fileSize = Math.round(file.size / 1024);
+			var suffix   = 'KB';
+			if (fileSize > 1000) {
+				fileSize = Math.round(fileSize / 1000);
+				suffix   = 'MB';
+			}
+			var fileSizeParts = fileSize.toString().split('.');
+			fileSize = fileSizeParts[0];
+			if (fileSizeParts.length > 1) {
+				fileSize += '.' + fileSizeParts[1].substr(0,2);
+			}
+			fileSize += suffix;
+			
+			// Truncate the filename if it's too long
+			var fileName = file.name;
+			if (fileName.length > 25) {
+				fileName = fileName.substr(0,25) + '...';
+			}
+
+			// Create the file data object
+			itemData = {
+				'fileID'     : file.id,
+				'instanceID' : settings.id,
+				'fileName'   : fileName,
+				'fileSize'   : fileSize
+			}
+
+			// Create the file item template
+			if (settings.itemTemplate == false) {
+				settings.itemTemplate = '<div id="${fileID}" class="uploadify-queue-item">\
+					<div class="cancel">\
+						<a href="javascript:$(\'#${instanceID}\').uploadify(\'cancel\', \'${fileID}\')">X</a>\
+					</div>\
+					<span class="fileName">${fileName} (${fileSize})</span><span class="data"></span>\
+					<div class="uploadify-progress">\
+						<div class="uploadify-progress-bar"><!--Progress Bar--></div>\
+					</div>\
+				</div>';
+			}
+
+			// Run the default event handler
+			if ($.inArray('onSelect', settings.overrideEvents) < 0) {
+				
+				// Replace the item data in the template
+				itemHTML = settings.itemTemplate;
+				for (var d in itemData) {
+					itemHTML = itemHTML.replace(new RegExp('\\$\\{' + d + '\\}', 'g'), itemData[d]);
+				}
+
+				// Add the file item to the queue
+				$('#' + settings.queueID).append(itemHTML);
+			}
+
+			this.queueData.queueSize += file.size;
+			this.queueData.files[file.id] = file;
+
+			// Call the user-defined event handler
+			if (settings.onSelect) settings.onSelect.apply(this, arguments);
+		},
+
+		// Triggered when a file is not added to the queue
+		onSelectError : function(file, errorCode, errorMsg) {
+			// Load the swfupload settings
+			var settings = this.settings;
+
+			// Run the default event handler
+			if ($.inArray('onSelectError', settings.overrideEvents) < 0) {
+				switch(errorCode) {
+					case SWFUpload.QUEUE_ERROR.QUEUE_LIMIT_EXCEEDED:
+						if (settings.queueSizeLimit > errorMsg) {
+							this.queueData.errorMsg += '\nThe number of files selected exceeds the remaining upload limit (' + errorMsg + ').';
+						} else {
+							this.queueData.errorMsg += '\nThe number of files selected exceeds the queue size limit (' + settings.queueSizeLimit + ').';
+						}
+						break;
+					case SWFUpload.QUEUE_ERROR.FILE_EXCEEDS_SIZE_LIMIT:
+						this.queueData.errorMsg += '\nThe file "' + file.name + '" exceeds the size limit (' + settings.fileSizeLimit + ').';
+						break;
+					case SWFUpload.QUEUE_ERROR.ZERO_BYTE_FILE:
+						this.queueData.errorMsg += '\nThe file "' + file.name + '" is empty.';
+						break;
+					case SWFUpload.QUEUE_ERROR.FILE_EXCEEDS_SIZE_LIMIT:
+						this.queueData.errorMsg += '\nThe file "' + file.name + '" is not an accepted file type (' + settings.fileTypeDesc + ').';
+						break;
+				}
+			}
+			if (errorCode != SWFUpload.QUEUE_ERROR.QUEUE_LIMIT_EXCEEDED) {
+				delete this.queueData.files[file.id];
+			}
+
+			// Call the user-defined event handler
+			if (settings.onSelectError) settings.onSelectError.apply(this, arguments);
+		},
+
+		// Triggered when all the files in the queue have been processed
+		onQueueComplete : function() {
+			if (this.settings.onQueueComplete) this.settings.onQueueComplete.call(this, this.settings.queueData);
+		},
+
+		// Triggered when a file upload successfully completes
+		onUploadComplete : function(file) {
+			// Load the swfupload settings
+			var settings     = this.settings,
+				swfuploadify = this;
+
+			// Check if all the files have completed uploading
+			var stats = this.getStats();
+			this.queueData.queueLength = stats.files_queued;
+			if (this.queueData.uploadQueue[0] == '*') {
+				if (this.queueData.queueLength > 0) {
+					this.startUpload();
+				} else {
+					this.queueData.uploadQueue = [];
+
+					// Call the user-defined event handler for queue complete
+					if (settings.onQueueComplete) settings.onQueueComplete.call(this, this.queueData);
+				}
+			} else {
+				if (this.queueData.uploadQueue.length > 0) {
+					this.startUpload(this.queueData.uploadQueue.shift());
+				} else {
+					this.queueData.uploadQueue = [];
+
+					// Call the user-defined event handler for queue complete
+					if (settings.onQueueComplete) settings.onQueueComplete.call(this, this.queueData);
+				}
+			}
+
+			// Call the default event handler
+			if ($.inArray('onUploadComplete', settings.overrideEvents) < 0) {
+				if (settings.removeCompleted) {
+					switch (file.filestatus) {
+						case SWFUpload.FILE_STATUS.COMPLETE:
+							setTimeout(function() { 
+								if ($('#' + file.id)) {
+									swfuploadify.queueData.queueSize   -= file.size;
+									swfuploadify.queueData.queueLength -= 1;
+									delete swfuploadify.queueData.files[file.id]
+									$('#' + file.id).fadeOut(500, function() {
+										$(this).remove();
+									});
+								}
+							}, settings.removeTimeout * 1000);
+							break;
+						case SWFUpload.FILE_STATUS.ERROR:
+							if (!settings.requeueErrors) {
+								setTimeout(function() {
+									if ($('#' + file.id)) {
+										swfuploadify.queueData.queueSize   -= file.size;
+										swfuploadify.queueData.queueLength -= 1;
+										delete swfuploadify.queueData.files[file.id];
+										$('#' + file.id).fadeOut(500, function() {
+											$(this).remove();
+										});
+									}
+								}, settings.removeTimeout * 1000);
+							}
+							break;
+					}
+				} else {
+					file.uploaded = true;
+				}
+			}
+
+			// Call the user-defined event handler
+			if (settings.onUploadComplete) settings.onUploadComplete.call(this, file);
+		},
+
+		// Triggered when a file upload returns an error
+		onUploadError : function(file, errorCode, errorMsg) {
+			// Load the swfupload settings
+			var settings = this.settings;
+
+			// Set the error string
+			var errorString = 'Error';
+			switch(errorCode) {
+				case SWFUpload.UPLOAD_ERROR.HTTP_ERROR:
+					errorString = 'HTTP Error (' + errorMsg + ')';
+					break;
+				case SWFUpload.UPLOAD_ERROR.MISSING_UPLOAD_URL:
+					errorString = 'Missing Upload URL';
+					break;
+				case SWFUpload.UPLOAD_ERROR.IO_ERROR:
+					errorString = 'IO Error';
+					break;
+				case SWFUpload.UPLOAD_ERROR.SECURITY_ERROR:
+					errorString = 'Security Error';
+					break;
+				case SWFUpload.UPLOAD_ERROR.UPLOAD_LIMIT_EXCEEDED:
+					alert('The upload limit has been reached (' + errorMsg + ').');
+					errorString = 'Exceeds Upload Limit';
+					break;
+				case SWFUpload.UPLOAD_ERROR.UPLOAD_FAILED:
+					errorString = 'Failed';
+					break;
+				case SWFUpload.UPLOAD_ERROR.SPECIFIED_FILE_ID_NOT_FOUND:
+					break;
+				case SWFUpload.UPLOAD_ERROR.FILE_VALIDATION_FAILED:
+					errorString = 'Validation Error';
+					break;
+				case SWFUpload.UPLOAD_ERROR.FILE_CANCELLED:
+					errorString = 'Cancelled';
+					this.queueData.queueSize   -= file.size;
+					this.queueData.queueLength -= 1;
+					if (file.status == SWFUpload.FILE_STATUS.IN_PROGRESS || $.inArray(file.id, this.queueData.uploadQueue) >= 0) {
+						this.queueData.uploadSize -= file.size;
+					}
+					// Trigger the onCancel event
+					if (settings.onCancel) settings.onCancel.call(this, file);
+					delete this.queueData.files[file.id];
+					break;
+				case SWFUpload.UPLOAD_ERROR.UPLOAD_STOPPED:
+					errorString = 'Stopped';
+					break;
+			}
+
+			// Call the default event handler
+			if ($.inArray('onUploadError', settings.overrideEvents) < 0) {
+
+				if (errorCode != SWFUpload.UPLOAD_ERROR.FILE_CANCELLED && errorCode != SWFUpload.UPLOAD_ERROR.UPLOAD_STOPPED) {
+					$('#' + file.id).addClass('uploadify-error');
+				}
+
+				// Reset the progress bar
+				$('#' + file.id).find('.uploadify-progress-bar').css('width','1px');
+
+				// Add the error message to the queue item
+				if (errorCode != SWFUpload.UPLOAD_ERROR.SPECIFIED_FILE_ID_NOT_FOUND && file.status != SWFUpload.FILE_STATUS.COMPLETE) {
+					$('#' + file.id).find('.data').html(' - ' + errorString);
+				}
+			}
+
+			var stats = this.getStats();
+			this.queueData.uploadsErrored = stats.upload_errors;
+
+			// Call the user-defined event handler
+			if (settings.onUploadError) settings.onUploadError.call(this, file, errorCode, errorMsg, errorString);
+		},
+
+		// Triggered periodically during a file upload
+		onUploadProgress : function(file, fileBytesLoaded, fileTotalBytes) {
+			// Load the swfupload settings
+			var settings = this.settings;
+
+			// Setup all the variables
+			var timer            = new Date();
+			var newTime          = timer.getTime();
+			var lapsedTime       = newTime - this.timer;
+			if (lapsedTime > 500) {
+				this.timer = newTime;
+			}
+			var lapsedBytes      = fileBytesLoaded - this.bytesLoaded;
+			this.bytesLoaded     = fileBytesLoaded;
+			var queueBytesLoaded = this.queueData.queueBytesUploaded + fileBytesLoaded;
+			var percentage       = Math.round(fileBytesLoaded / fileTotalBytes * 100);
+			
+			// Calculate the average speed
+			var suffix = 'KB/s';
+			var mbs = 0;
+			var kbs = (lapsedBytes / 1024) / (lapsedTime / 1000);
+			    kbs = Math.floor(kbs * 10) / 10;
+			if (this.queueData.averageSpeed > 0) {
+				this.queueData.averageSpeed = Math.floor((this.queueData.averageSpeed + kbs) / 2);
+			} else {
+				this.queueData.averageSpeed = Math.floor(kbs);
+			}
+			if (kbs > 1000) {
+				mbs = (kbs * .001);
+				this.queueData.averageSpeed = Math.floor(mbs);
+				suffix = 'MB/s';
+			}
+			
+			// Call the default event handler
+			if ($.inArray('onUploadProgress', settings.overrideEvents) < 0) {
+				if (settings.progressData == 'percentage') {
+					$('#' + file.id).find('.data').html(' - ' + percentage + '%');
+				} else if (settings.progressData == 'speed' && lapsedTime > 500) {
+					$('#' + file.id).find('.data').html(' - ' + this.queueData.averageSpeed + suffix);
+				}
+				$('#' + file.id).find('.uploadify-progress-bar').css('width', percentage + '%');
+			}
+
+			// Call the user-defined event handler
+			if (settings.onUploadProgress) settings.onUploadProgress.call(this, file, fileBytesLoaded, fileTotalBytes, queueBytesLoaded, this.queueData.uploadSize);
+		},
+
+		// Triggered right before a file is uploaded
+		onUploadStart : function(file) {
+			// Load the swfupload settings
+			var settings = this.settings;
+
+			var timer        = new Date();
+			this.timer       = timer.getTime();
+			this.bytesLoaded = 0;
+			if (this.queueData.uploadQueue.length == 0) {
+				this.queueData.uploadSize = file.size;
+			}
+			if (settings.checkExisting) {
+				$.ajax({
+					type    : 'POST',
+					async   : false,
+					url     : settings.checkExisting,
+					data    : {filename: file.name},
+					success : function(data) {
+						if (data == 1) {
+							var overwrite = confirm('A file with the name "' + file.name + '" already exists on the server.\nWould you like to replace the existing file?');
+							if (!overwrite) {
+								this.cancelUpload(file.id);
+								$('#' + file.id).remove();
+								if (this.queueData.uploadQueue.length > 0 && this.queueData.queueLength > 0) {
+									if (this.queueData.uploadQueue[0] == '*') {
+										this.startUpload();
+									} else {
+										this.startUpload(this.queueData.uploadQueue.shift());
+									}
+								}
+							}
+						}
+					}
+				});
+			}
+
+			// Call the user-defined event handler
+			if (settings.onUploadStart) settings.onUploadStart.call(this, file); 
+		},
+
+		// Triggered when a file upload returns a successful code
+		onUploadSuccess : function(file, data, response) {
+			// Load the swfupload settings
+			var settings = this.settings;
+			var stats    = this.getStats();
+			this.queueData.uploadsSuccessful = stats.successful_uploads;
+			this.queueData.queueBytesUploaded += file.size;
+
+			// Call the default event handler
+			if ($.inArray('onUploadSuccess', settings.overrideEvents) < 0) {
+				$('#' + file.id).find('.data').html(' - Complete');
+			}
+
+			// Call the user-defined event handler
+			if (settings.onUploadSuccess) settings.onUploadSuccess.call(this, file, data, response); 
+		}
+
+	}
+
+	$.fn.uploadify = function(method) {
+
+		if (methods[method]) {
+			return methods[method].apply(this, Array.prototype.slice.call(arguments, 1));
+		} else if (typeof method === 'object' || !method) {
+			return methods.init.apply(this, arguments);
+		} else {
+			$.error('The method ' + method + ' does not exist in $.uploadify');
+		}
+
+	}
+
+})($);

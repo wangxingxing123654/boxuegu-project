@@ -11,6 +11,8 @@
   "license": "ISC",
   "dependencies": {
     "art-template": "^4.12.1",
+    "bootstrap-datepicker": "^1.7.1",
+    "ckeditor": "^4.7.3",
     "jquery-form": "^4.2.1",
     "jquery.cookie": "^1.4.1",
     "nprogress": "^0.2.0"
